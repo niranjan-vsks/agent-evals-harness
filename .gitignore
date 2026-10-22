@@ -155,3 +155,12 @@ results/
 !experiments/results/
 FORGE_RESUME.md
 /work/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Trial scratch
+work/

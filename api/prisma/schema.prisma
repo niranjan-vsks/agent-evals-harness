@@ -1,0 +1,402 @@
+// Source of truth: DATA_MODEL.md. Constraints Prisma cannot express (CHECKs, partial
+// unique index, rules, triggers) live in migrations/0002_invariants/migration.sql.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- enums (D-1)
+
+enum TaskCategory {
+  memory_dependent
+  memory_distractor
+  neutral_deterministic
+  neutral_judged
+  honesty
+
+  @@map("task_category")
+}
+
+enum ExperimentStatus {
+  draft
+  queued
+  running
+  completed
+  partial
+  cancelled
+
+  @@map("experiment_status")
+}
+
+enum ExperimentPhase {
+  pilot
+  full
+
+  @@map("experiment_phase")
+}
+
+enum TrialStatus {
+  pending
+  running
+  done
+  errored
+  cancelled
+
+  @@map("trial_status")
+}
+
+enum ExitReason {
+  completed
+  max_steps
+  timeout
+  invalid_tool_call
+  agent_error
+
+  @@map("exit_reason")
+}
+
+enum ErrorClass {
+  rate_limited
+  provider_error
+  worker_crash
+  grader_error
+  config_invalid
+  backpressure
+  orphaned
+  cancelled
+
+  @@map("error_class")
+}
+
+enum AttemptResult {
+  done
+  errored
+  orphaned
+  cancelled
+
+  @@map("attempt_result")
+}
+
+enum GraderType {
+  exact_match
+  file_state
+  unit_test
+  trace_check
+  llm_judge
+
+  @@map("grader_type")
+}
+
+enum JudgePolicy {
+  trusted
+  flagged
+  excluded
+
+  @@map("judge_policy")
+}
+
+// ---------------------------------------------------------------- 2.1 model
+
+model Model {
+  id                  String   @id
+  displayName         String   @map("display_name")
+  slug                String   @unique
+  baseUrl             String   @map("base_url")
+  apiKeyEnv           String   @map("api_key_env")
+  inputPricePerMtok   Decimal  @map("input_price_per_mtok") @db.Decimal(12, 6)
+  outputPricePerMtok  Decimal  @map("output_price_per_mtok") @db.Decimal(12, 6)
+  contextWindow       Int      @map("context_window")
+  roles               String[]
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  configs Config[]
+
+  @@map("model")
+}
+
+// ---------------------------------------------------------------- 2.2 harness
+
+model Harness {
+  id           String
+  version      String
+  capabilities Json
+  recordedAt   DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  configs Config[]
+
+  @@id([id, version])
+  @@map("harness")
+}
+
+// ---------------------------------------------------------------- 2.3 memory_fixture
+
+model MemoryFixture {
+  name     String
+  hash     String
+  files    Json
+  syncedAt DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@id([name, hash])
+  @@map("memory_fixture")
+}
+
+// ---------------------------------------------------------------- 2.4 task
+
+model Task {
+  id            String
+  versionHash   String       @map("version_hash")
+  category      TaskCategory
+  prompt        String
+  fixtureDir    String?      @map("fixture_dir")
+  memoryFixture String?      @map("memory_fixture")
+  graders       Json
+  discriminates String[]
+  tags          String[]
+  isCurrent     Boolean      @default(false) @map("is_current")
+  syncedAt      DateTime     @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  experimentTasks ExperimentTask[]
+  trials          Trial[]
+
+  @@id([id, versionHash])
+  @@map("task")
+}
+
+// ---------------------------------------------------------------- 2.5 config
+
+model Config {
+  id             String   @id
+  name           String
+  harnessId      String   @map("harness_id")
+  harnessVersion String   @map("harness_version")
+  modelId        String   @map("model_id")
+  modelSlug      String   @map("model_slug")
+  settings       Json
+  configHash     String   @unique @map("config_hash")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  harness           Harness            @relation(fields: [harnessId, harnessVersion], references: [id, version])
+  model             Model              @relation(fields: [modelId], references: [id])
+  experimentConfigs ExperimentConfig[]
+  trials            Trial[]
+  comparisonsA      ComparisonRun[]    @relation("ComparisonConfigA")
+  comparisonsB      ComparisonRun[]    @relation("ComparisonConfigB")
+
+  @@map("config")
+}
+
+// ---------------------------------------------------------------- 2.6 experiment
+
+model Experiment {
+  id             String           @id
+  name           String
+  status         ExperimentStatus @default(draft)
+  nTrials        Int              @map("n_trials")
+  seed           Int
+  phase          ExperimentPhase
+  axis           String?
+  hypothesis     String?
+  workerManifest Json             @map("worker_manifest")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt      DateTime?        @map("started_at") @db.Timestamptz(6)
+  finishedAt     DateTime?        @map("finished_at") @db.Timestamptz(6)
+  pauseReason    String?          @map("pause_reason")
+
+  configs     ExperimentConfig[]
+  tasks       ExperimentTask[]
+  trials      Trial[]
+  comparisons ComparisonRun[]
+
+  @@map("experiment")
+}
+
+model ExperimentConfig {
+  experimentId String @map("experiment_id")
+  configId     String @map("config_id")
+  position     Int
+
+  experiment Experiment @relation(fields: [experimentId], references: [id])
+  config     Config     @relation(fields: [configId], references: [id])
+
+  @@id([experimentId, configId])
+  @@unique([experimentId, position])
+  @@map("experiment_config")
+}
+
+model ExperimentTask {
+  experimentId    String @map("experiment_id")
+  taskId          String @map("task_id")
+  taskVersionHash String @map("task_version_hash")
+
+  experiment Experiment @relation(fields: [experimentId], references: [id])
+  task       Task       @relation(fields: [taskId, taskVersionHash], references: [id, versionHash])
+
+  @@id([experimentId, taskId])
+  @@map("experiment_task")
+}
+
+// ---------------------------------------------------------------- 2.7 trial
+
+model Trial {
+  id              String      @id
+  experimentId    String      @map("experiment_id")
+  configId        String      @map("config_id")
+  taskId          String      @map("task_id")
+  taskVersionHash String      @map("task_version_hash")
+  trialIndex      Int         @map("trial_index")
+  seed            Int
+  status          TrialStatus @default(pending)
+  attemptCount    Int         @default(0) @map("attempt_count")
+  passed          Boolean?
+  exitReason      ExitReason? @map("exit_reason")
+  steps           Int?
+  inputTokens     Int?        @map("input_tokens")
+  outputTokens    Int?        @map("output_tokens")
+  cacheReadTokens Int?        @map("cache_read_tokens")
+  reasoningTokens Int?        @map("reasoning_tokens")
+  apiCalls        Int?        @map("api_calls")
+  latencyMs       Int?        @map("latency_ms")
+  costUsd         Decimal?    @map("cost_usd") @db.Decimal(12, 6)
+  harnessCostUsd  Decimal?    @map("harness_cost_usd") @db.Decimal(12, 6)
+  priceSnapshot   Json        @map("price_snapshot")
+  rateLimitEvents Int         @default(0) @map("rate_limit_events")
+  errorClass      ErrorClass? @map("error_class")
+  errorMessage    String?     @map("error_message")
+  startedAt       DateTime?   @map("started_at") @db.Timestamptz(6)
+  endedAt         DateTime?   @map("ended_at") @db.Timestamptz(6)
+  heartbeatAt     DateTime?   @map("heartbeat_at") @db.Timestamptz(6)
+
+  experiment Experiment      @relation(fields: [experimentId], references: [id])
+  config     Config          @relation(fields: [configId], references: [id])
+  task       Task            @relation(fields: [taskId, taskVersionHash], references: [id, versionHash])
+  attempts   TrialAttempt[]
+  trace      Trace?
+  graders    GraderResult[]
+
+  @@unique([experimentId, configId, taskId, trialIndex])
+  @@map("trial")
+}
+
+// ---------------------------------------------------------------- 2.8 trial_attempt
+
+model TrialAttempt {
+  id           String         @id
+  trialId      String         @map("trial_id")
+  attemptNo    Int            @map("attempt_no")
+  startedAt    DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime?      @map("ended_at") @db.Timestamptz(6)
+  // NULL while the dispatch is in flight: the row is written before the HTTP call (DATA_MODEL 2.8).
+  result       AttemptResult?
+  errorClass   ErrorClass?    @map("error_class")
+  errorMessage String?        @map("error_message")
+  partialTrace Json?          @map("partial_trace")
+
+  trial Trial @relation(fields: [trialId], references: [id])
+
+  @@unique([trialId, attemptNo])
+  @@map("trial_attempt")
+}
+
+// ---------------------------------------------------------------- 2.9 trace
+
+model Trace {
+  trialId        String   @id @map("trial_id")
+  schemaVersion  Int      @default(1) @map("schema_version")
+  harnessId      String   @map("harness_id")
+  harnessVersion String   @map("harness_version")
+  modelSlug      String   @map("model_slug")
+  systemPrompt   String?  @map("system_prompt")
+  events         Json
+  memoryInitial  Json     @map("memory_initial")
+  memoryFinal    Json     @map("memory_final")
+  skillsInvoked  String[] @map("skills_invoked")
+  notes          String[]
+  finalResponse  String?  @map("final_response")
+
+  trial Trial @relation(fields: [trialId], references: [id])
+
+  @@map("trace")
+}
+
+// ---------------------------------------------------------------- 2.10 grader_result
+
+model GraderResult {
+  id              String     @id
+  trialId         String     @map("trial_id")
+  graderIndex     Int        @map("grader_index")
+  graderType      GraderType @map("grader_type")
+  passed          Boolean
+  details         Json
+  reasoning       String?
+  judgeModelId    String?    @map("judge_model_id")
+  judgePromptHash String?    @map("judge_prompt_hash")
+  durationMs      Int        @map("duration_ms")
+
+  trial       Trial        @relation(fields: [trialId], references: [id])
+  judgeLabels JudgeLabel[]
+
+  @@unique([trialId, graderIndex])
+  @@map("grader_result")
+}
+
+// ---------------------------------------------------------------- 2.11 judge_label
+
+model JudgeLabel {
+  id          String   @id
+  trialId     String   @map("trial_id")
+  graderIndex Int      @map("grader_index")
+  humanPassed Boolean  @map("human_passed")
+  labeler     String
+  labeledAt   DateTime @default(now()) @map("labeled_at") @db.Timestamptz(6)
+  note        String?
+
+  grader GraderResult @relation(fields: [trialId, graderIndex], references: [trialId, graderIndex])
+
+  @@unique([trialId, graderIndex, labeler])
+  @@map("judge_label")
+}
+
+// ---------------------------------------------------------------- 2.12 judge_validation
+
+model JudgeValidation {
+  id              String      @id
+  computedAt      DateTime    @default(now()) @map("computed_at") @db.Timestamptz(6)
+  judgeModelId    String      @map("judge_model_id")
+  judgePromptHash String      @map("judge_prompt_hash")
+  labelSetHash    String      @map("label_set_hash")
+  nItems          Int         @map("n_items")
+  agreementRaw    Decimal     @map("agreement_raw") @db.Decimal(6, 4)
+  kappa           Decimal     @db.Decimal(6, 4)
+  kappaCiLow      Decimal     @map("kappa_ci_low") @db.Decimal(6, 4)
+  kappaCiHigh     Decimal     @map("kappa_ci_high") @db.Decimal(6, 4)
+  policy          JudgePolicy
+
+  @@map("judge_validation")
+}
+
+// ---------------------------------------------------------------- 2.13 comparison_run
+
+model ComparisonRun {
+  id                 String      @id
+  experimentId       String      @map("experiment_id")
+  configAId          String      @map("config_a_id")
+  configBId          String      @map("config_b_id")
+  computedAt         DateTime    @default(now()) @map("computed_at") @db.Timestamptz(6)
+  statsVersion       String      @map("stats_version")
+  seed               Int
+  resamples          Int
+  judgePolicyApplied JudgePolicy @map("judge_policy_applied")
+  result             Json
+
+  experiment Experiment @relation(fields: [experimentId], references: [id])
+  configA    Config     @relation("ComparisonConfigA", fields: [configAId], references: [id])
+  configB    Config     @relation("ComparisonConfigB", fields: [configBId], references: [id])
+
+  @@map("comparison_run")
+}

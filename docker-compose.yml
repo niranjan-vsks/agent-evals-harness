@@ -1,0 +1,70 @@
+# docker compose up brings up db, api, worker and web. Keys come from .env (see .env.example).
+# No Docker-in-Docker: the worker runs harness shell tools in its own container (DESIGN 13.6).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: evals
+      POSTGRES_PASSWORD: evals
+      POSTGRES_DB: evals
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evals -d evals"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./api
+    depends_on:
+      db:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://evals:evals@db:5432/evals
+      WORKER_URL: http://worker:8000
+      TASKS_DIR: /tasks
+      MAX_CONCURRENT_TRIALS: ${MAX_CONCURRENT_TRIALS:-2}
+      JUDGE_MODEL_ID: ${JUDGE_MODEL_ID:-model-a}
+    volumes:
+      - ./tasks:/tasks:ro
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build: ./worker
+    env_file:
+      - .env
+    environment:
+      TASKS_DIR: /tasks
+      WORK_DIR: /work
+      KEEP_TRIAL_DIRS: ${KEEP_TRIAL_DIRS:-0}
+    volumes:
+      - ./tasks:/tasks:ro
+      - workdata:/work
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build: ./web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  dbdata:
+  workdata:
