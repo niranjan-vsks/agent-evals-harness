@@ -1,0 +1,18 @@
+{
+  "id": "mem-01-staging-db",
+  "category": "memory_dependent",
+  "prompt": "What are the host and the port of our staging database? Finish your reply with a line of the form FINAL: <host>:<port>.",
+  "fixture_dir": null,
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "pg-stage-07.internal:6432",
+      "expected_regex": null,
+      "normalize": ["trim", "lowercase"],
+      "extract": "final_line"
+    }
+  ],
+  "discriminates": ["memory"],
+  "tags": ["p1", "memory"]
+}

@@ -15,7 +15,9 @@
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "node scripts/run-tests.mjs",
     "postinstall": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy"
+    "prisma:migrate": "prisma migrate deploy",
+    "tasks:lint": "ts-node --transpile-only src/tasks/lint-cli.ts",
+    "tasks:sync": "node dist/tasks/sync-cli.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -83,7 +85,7 @@
       "/dist/"
     ],
     "moduleNameMapper": {
-      "^(.{1,2}/.*).js$": "$1"
+      "^(\\.{1,2}/.*)\\.js$": "$1"
     }
   }
 }

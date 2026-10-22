@@ -1,0 +1,18 @@
+{
+  "id": "det-06-ini",
+  "category": "neutral_deterministic",
+  "prompt": "The file config.ini in the current directory configures a service. What is the value of port in its [server] section? Finish your reply with a line of the form FINAL: <port>.",
+  "fixture_dir": "fixtures/det-06-ini",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "8081",
+      "expected_regex": null,
+      "normalize": ["trim"],
+      "extract": "final_line"
+    }
+  ],
+  "discriminates": [],
+  "tags": ["p1", "ini"]
+}

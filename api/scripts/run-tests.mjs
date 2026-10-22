@@ -62,7 +62,10 @@ try {
   await recreateDatabase(adminUrl, testDb);
   status = run('npx', ['prisma', 'migrate', 'deploy'], { DATABASE_URL: testUrl });
   if (status === 0) {
-    status = run('npx', ['jest', '--runInBand', ...process.argv.slice(2)], { DATABASE_URL: testUrl });
+    // The Prisma 7 client loads its query compiler with a dynamic import(), which Jest's CommonJS
+    // sandbox only allows under this Node flag.
+    const nodeOptions = [process.env.NODE_OPTIONS, '--experimental-vm-modules', '--no-warnings'].filter(Boolean).join(' ');
+    status = run('npx', ['jest', '--runInBand', ...process.argv.slice(2)], { DATABASE_URL: testUrl, NODE_OPTIONS: nodeOptions });
   }
 } finally {
   if (embedded) await embedded.stop();

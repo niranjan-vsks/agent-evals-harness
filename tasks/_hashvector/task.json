@@ -1,0 +1,29 @@
+{
+  "tags": [
+    "z",
+    "a"
+  ],
+  "prompt": "Café: say \"hi\" ☃ 😀 \\ / \t tab",
+  "id": "tst-01-vector",
+  "graders": [
+    {
+      "type": "exact_match",
+      "normalize": [
+        "trim"
+      ],
+      "expected": "x",
+      "extract": "final_line",
+      "expected_regex": null
+    }
+  ],
+  "version_hash": "must-be-ignored",
+  "fixture_dir": "fixtures",
+  "count": 3,
+  "neg": -7,
+  "zero": 0,
+  "flag": true,
+  "none": null,
+  "😀key": 1,
+  "～key": 2,
+  "akey": 3
+}
