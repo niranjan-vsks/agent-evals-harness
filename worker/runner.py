@@ -236,7 +236,11 @@ def run_trial(spec: dict[str, Any], cfg: RunnerConfig | None = None) -> dict[str
     if adapter is None:
         return _error_result(spec, "config_invalid", f"unknown harness {parsed.harness!r}")
 
-    secrets = [os.environ.get(parsed.model.api_key_env, "")]
+    key_name = parsed.model.api_key_env
+    if key_name not in os.environ:
+        # Not retryable: retrying a worker that was started without the key cannot help.
+        return _error_result(spec, "config_invalid", f"the worker has no environment variable {key_name} (the model's api_key_env)")
+    secrets = [os.environ[key_name]]
     task_id = parsed.task["id"]
 
     # R-6: the task on disk must be the task the experiment pinned.

@@ -202,3 +202,11 @@ def test_unknown_harness_is_config_invalid(runner_env, tasks_dir):
     res = run_trial(make_spec(tasks_dir, harness="nope"), runner_env)
     assert res["error_class"] == "config_invalid"
     assert "unknown harness" in res["error_message"]
+
+
+def test_a_worker_without_the_models_key_variable_is_config_invalid_not_a_crash(runner_env, tasks_dir, monkeypatch):
+    monkeypatch.delenv(KEY_ENV)
+    res = run_trial(make_spec(tasks_dir), runner_env)
+    assert res["status"] == "errored"
+    assert res["error_class"] == "config_invalid"
+    assert KEY_ENV in res["error_message"]

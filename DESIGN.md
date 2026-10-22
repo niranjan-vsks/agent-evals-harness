@@ -531,10 +531,72 @@ actual spend.
 
 ## 11. Contract findings
 
-`TBD by P2`: every change ADAPTERS.md needed while implementing the Hermes adapter and
-then the minimal loop, with the reason. An empty list is a valid finding and should be
-stated as such. Known candidates to check: whether `steps` (H-9) can be derived from
-Hermes callbacks exactly; whether the system prompt is capturable (A-6).
+Every place ADAPTERS.md did not match what building against it required, with the reason.
+ADAPTERS.md itself was not edited. Entries 1 to 9 come from the Hermes adapter (P1); the
+minimal loop's findings are `TBD by P2`.
+
+No invariant H-1 to H-11, M-1, M-3, M-4 or R-1 to R-8 had to be weakened. Entries 2, 6, 7, 8
+and 9 say how the text of M-1, M-3, H-9, H-11 and H-4 was read.
+
+1. **Validate endpoint verb.** ADAPTERS 2 says the worker's `GET /adapters/{id}/validate`.
+   The settings travel in a body, so the worker serves `POST /adapters/{id}/validate`
+   (cards/P1.md section 6 says POST). Behaviour is as specified.
+2. **M-1 grep versus base.py.** ADAPTERS 1 requires `base.py` verbatim, and its comments
+   contain `"model-a"` and `"anthropic/claude-sonnet-4.5"`, which the M-1 grep (ADAPTERS 5)
+   forbids in any file under `worker/adapters/`. The M-1 test scans every adapter file except
+   `base.py`. No adapter code branches on a model.
+3. **Trace events come from Hermes lifecycle hooks, not callbacks.** ADAPTERS 3 names
+   `tool_progress_callback` and `step_callback`. Those carry no call id on completion and no
+   HTTP status, so the adapter registers on the plugin manager's `pre_api_request`,
+   `post_api_request`, `api_request_error`, `pre_tool_call` and `post_tool_call` hooks
+   (`hermes_cli/plugins.py:107`), which carry call ids, durations, status codes and usage.
+   The event kinds and fields are exactly those of ADAPTERS 1. The registration reaches into
+   `PluginManager._hooks`, a private attribute; the pin on commit `f4ac0bea1e` and the
+   conformance suite are what catch a break.
+4. **`message` events are emitted as they happen, not after the run.** ADAPTERS 3 lists them
+   as emitted from `result["messages"]` after the run. Emitted live from the same hooks, a
+   trial killed by R-2 keeps its system, user and assistant messages up to the kill (H-7).
+5. **A-6 is false, and the system prompt is still captured (H-3).** `result["messages"]` holds
+   only user and assistant rows. The system prompt is taken from the `pre_api_request` hook
+   (what is sent on the first call, asserted equal to the request the stub received), with
+   `agent._cached_system_prompt` as the fallback. `system_prompt_capture` stays `True`.
+6. **M-3 for Hermes needs 3 switches and has 1 residue.** `agent.api_max_retries: 0` is clamped
+   to 1 (`agent_init.py:1444`), a single attempt. `agent.auto_recovery_cycles: 0` removes the
+   post-exhaustion waits. `HERMES_STREAM_RETRIES=0` (read at `chat_completion_helpers.py:3740`)
+   removes the stream layer's silent re-sends. What remains: after a streamed 5xx Hermes
+   re-issues 1 non-streaming request per 60 s window (`_STREAM_5XX_PROBE_WINDOW_S`). It is not
+   visible as its own `api_call` event; when it succeeds, its response is the call recorded
+   as `ok`. Hermes also re-requests after a response it rejects (truncated or malformed tool
+   calls, up to 5 times); those requests are recorded as `api_call` events with status
+   `retry` and `http_status: null`, because no hook reports their HTTP status. The conformance
+   test asserts the provider saw exactly as many requests as there are `api_call` events for
+   the 429 case.
+7. **`steps` is the count of `ok` events, not `max_steps`.** After the iteration cap Hermes
+   makes 1 more toolless request to ask for a summary
+   (`agent/turn_finalizer.py:138-163`). It is not an event, so `steps <= max_steps` and
+   H-9 holds, but that request's tokens are in no event. The exit reason is `max_steps`
+   (A-5: the string is `max_iterations_reached(N/M)`).
+8. **H-11 needs the hook.** Hermes strips whitespace from `result["final_response"]`. The
+   adapter returns the model's last reply exactly as received (from the hook) when it is the
+   same text up to whitespace, and Hermes's own value otherwise.
+9. **Tool surface (H-4).** Hermes defers some tools of the `terminal` toolset behind
+   `tool_search`, `tool_describe` and `tool_call` bridge tools, which are not in the
+   configured set. The adapter writes `tools.tool_search.enabled: "off"` into the trial
+   config so the model is offered exactly the tools of the 2 toolsets (`terminal`,
+   `process_manage`, `read_file`, `write_file`, `patch`, `search_files`).
+
+Not findings about ADAPTERS.md but decisions it left open, recorded here so P2 inherits them:
+
+- **Grader-only files live in `_hidden/`.** DESIGN 7.3 names `equals_file` and `hidden_files`
+  but not where they are stored. They go in `<fixture_dir>/_hidden/`, which the runner never
+  copies into the workspace (R-5, R-7) and which stays inside the hashed fixture tree (R-6).
+- **A timed-out trial is graded as failed without running the graders.** One failed
+  `grader_result` row per grader keeps D-14 true (the AND over zero rows would be true).
+  P2 must give a synthesized `llm_judge` row its judge ids (the CHECK requires them).
+- **Provider failures are classified by the runner.** An `agent_error` result with an `error`
+  event marked `retryable` and a final `api_call` with status `error` becomes an errored trial
+  (429 `rate_limited`; 400, 401, 403, 404, 422 `config_invalid`; anything else
+  `provider_error`), never a scored failure.
 
 ---
 

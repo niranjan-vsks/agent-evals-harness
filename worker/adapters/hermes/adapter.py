@@ -341,7 +341,6 @@ class _Recorder:
         self._last_error_status: int | None = None
         self._last_error_seen = False
         self._closed = False
-        self._registered: list[tuple[str, Any]] = []
 
     # -- registration -----------------------------------------------------------------
 
@@ -360,7 +359,6 @@ class _Recorder:
             ("post_tool_call", self.post_tool_call),
         ):
             manager._hooks.setdefault(name, []).append(fn)
-            self._registered.append((name, fn))
 
     def close(self) -> None:
         with self._lock:

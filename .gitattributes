@@ -1,3 +1,6 @@
+# Source files use LF everywhere (the images are Linux).
+* text=auto eol=lf
+
 # Task identity hashes cover raw bytes (worker/task_hash.py, api/src/tasks/hash.ts), so
 # git must never rewrite line endings in task files or fixtures.
 tasks/** -text
