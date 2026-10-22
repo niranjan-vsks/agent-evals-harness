@@ -23,6 +23,7 @@ Scenarios
   risky_command       step 0 runs a recursive delete in the workspace, then answers (A-12: no prompt)
 """
 import json
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -99,7 +100,7 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
             return {"content": "", "tool_calls": [_tool_call(0, shell["name"], json.dumps(_args_for(shell, cmd)))]}
         return {"content": ANSWER, "tool_calls": []}
     if scenario == "echo_memory":
-        return {"content": f"FINAL: {STAGING_DB}" if STAGING_DB in system else "FINAL: unknown", "tool_calls": []}
+        return {"content": f"FINAL: {_staging_db(system)}", "tool_calls": []}
     if scenario in ("shell_then_answer", "stall_on_3", "loop_tools"):
         shell = _find_tool(tools, "terminal", "shell", "bash")
         if scenario == "stall_on_3" and step >= 2:
@@ -117,6 +118,18 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         if fn is not None:
             return {"content": "", "tool_calls": [_tool_call(0, fn["name"], "{not valid json")]}
     return {"content": ANSWER, "tool_calls": []}
+
+
+_DB_PROSE = re.compile(r"host\s+([\w.-]+),?\s+port\s+(\d+)")
+
+
+def _staging_db(system: str) -> str:
+    """What a model that read the memory would answer: host:port from the staging-database entry,
+    in the fixture's own wording or as a literal host:port. 'unknown' when memory is absent."""
+    if STAGING_DB in system:
+        return STAGING_DB
+    m = _DB_PROSE.search(system)
+    return f"{m.group(1)}:{m.group(2)}" if m else "unknown"
 
 
 def _usage(body: dict[str, Any], content: str) -> dict[str, int]:

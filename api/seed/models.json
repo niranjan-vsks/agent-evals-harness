@@ -1,24 +1,24 @@
 [
   {
     "id": "model-a",
-    "display_name": "VERIFY: Anthropic model via OpenRouter",
-    "slug": "VERIFY-anthropic/model",
+    "display_name": "Anthropic: Claude Haiku 5.5 (via OpenRouter)",
+    "slug": "anthropic/claude-haiku-5.5",
     "base_url": "https://openrouter.ai/api/v1",
     "api_key_env": "OPENROUTER_API_KEY",
-    "input_price_per_mtok": 0,
-    "output_price_per_mtok": 0,
-    "context_window": 1,
+    "input_price_per_mtok": 0.1,
+    "output_price_per_mtok": 0.5,
+    "context_window": 1000000,
     "roles": ["candidate", "judge"]
   },
   {
     "id": "model-b",
-    "display_name": "VERIFY: OpenAI model via OpenRouter",
-    "slug": "VERIFY-openai/model",
+    "display_name": "OpenAI: gpt-oss-20b (via OpenRouter)",
+    "slug": "openai/gpt-oss-20b",
     "base_url": "https://openrouter.ai/api/v1",
     "api_key_env": "OPENROUTER_API_KEY",
-    "input_price_per_mtok": 0,
-    "output_price_per_mtok": 0,
-    "context_window": 1,
+    "input_price_per_mtok": 0.018,
+    "output_price_per_mtok": 0.09,
+    "context_window": 131072,
     "roles": ["candidate", "judge"]
   }
 ]

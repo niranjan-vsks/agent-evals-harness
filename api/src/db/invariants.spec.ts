@@ -21,6 +21,20 @@ describe('database invariants', () => {
     base = await insertBaseRows(pool);
   });
 
+  it('stores UTF-8, because traces carry whatever characters the model printed', async () => {
+    const enc = await pool.query(`SHOW server_encoding`);
+    expect(enc.rows[0].server_encoding).toBe('UTF8');
+    const exp = await insertExperiment(pool);
+    const trialId = await insertTrial(pool, base, exp);
+    await pool.query(
+      `INSERT INTO trace (trial_id, harness_id, harness_version, model_slug, events, memory_initial, memory_final, skills_invoked, notes, final_response)
+       VALUES ($1, 'h', 'v', 's', '[]', '{}', '{}', ARRAY[]::text[], ARRAY[]::text[], $2)`,
+      [trialId, 'done ✓ 日本語 \u{1F600}'],
+    );
+    const back = await pool.query(`SELECT final_response FROM trace WHERE trial_id = $1`, [trialId]);
+    expect(back.rows[0].final_response).toBe('done ✓ 日本語 \u{1F600}');
+  });
+
   describe('D-1 states are enums', () => {
     it('rejects an undefined trial status', async () => {
       const exp = await insertExperiment(pool);

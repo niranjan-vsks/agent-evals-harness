@@ -16,13 +16,27 @@ async function recreateDatabase(adminUrl, name) {
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-  await admin.query(`CREATE DATABASE "${name}"`);
+  await admin.query(`CREATE DATABASE "${name}" TEMPLATE template0 ENCODING 'UTF8'`);
   await admin.end();
 }
 
 function run(cmd, args, env) {
   const r = spawnSync(cmd, args, { stdio: 'inherit', env: { ...process.env, ...env }, shell: process.platform === 'win32' });
   return r.status ?? 1;
+}
+
+// stop() deletes the data directory, which Windows refuses (EBUSY) for a moment after postgres exits.
+async function stopEmbedded(pgInstance) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await pgInstance.stop();
+      return;
+    } catch (e) {
+      if (e?.code !== 'EBUSY') throw e;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  console.error('embedded postgres stopped but its data directory is still locked; leaving it for the OS temp cleaner');
 }
 
 let embedded = null;
@@ -47,6 +61,9 @@ if (process.env.DATABASE_URL) {
     password: 'postgres',
     port: EMBEDDED_PORT,
     persistent: false,
+    // Windows would pick WIN1252, which cannot store the characters a model prints. The compose
+    // postgres:16 image is UTF8; the embedded server must be too.
+    initdbFlags: ['--encoding=UTF8', '--locale=C'],
     onLog: () => {},
     onError: (e) => process.stderr.write(String(e) + '\n'),
   });
@@ -68,6 +85,6 @@ try {
     status = run('npx', ['jest', '--runInBand', ...process.argv.slice(2)], { DATABASE_URL: testUrl, NODE_OPTIONS: nodeOptions });
   }
 } finally {
-  if (embedded) await embedded.stop();
+  if (embedded) await stopEmbedded(embedded);
 }
 process.exit(status);

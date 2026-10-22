@@ -42,7 +42,8 @@ export class TasksService implements OnModuleInit {
       await this.prisma.memoryFixture.upsert({
         where: { name_hash: { name: fx.name, hash: fx.hash } },
         create: { name: fx.name, hash: fx.hash, files: fx.files },
-        update: {},
+        // The version on disk is the one synced last; configs resolve a fixture name to it.
+        update: { syncedAt: new Date() },
       });
     }
 
