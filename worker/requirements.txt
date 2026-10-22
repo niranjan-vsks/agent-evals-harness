@@ -1,0 +1,5 @@
+# Installed after Hermes (which pins openai==2.24.0 and brings httpx). These are the versions
+# the host test run resolved; see STATE.md.
+fastapi==0.161.0
+uvicorn==0.54.0
+pytest==9.1.1
