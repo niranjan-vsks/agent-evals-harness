@@ -16,9 +16,7 @@ KEY_ENV = "STUB_API_KEY"
 SENTINEL_KEY = "sk-sentinel-5d1b7e0c9a"
 
 
-@pytest.fixture
-def tasks_dir(tmp_path: Path) -> Path:
-    root = tmp_path / "tasks"
+def build_tasks_dir(root: Path) -> Path:
     fixture = root / "fixtures" / "det-06-ini"
     fixture.mkdir(parents=True)
     (fixture / "config.ini").write_text("[server]\nport = 8081\n[db]\nport = 5432\n", encoding="utf-8")
@@ -26,6 +24,11 @@ def tasks_dir(tmp_path: Path) -> Path:
     (fixture / "_hidden" / "expected.txt").write_text("42\n", encoding="utf-8")
     write_task(root, "det-06-ini", "fixtures/det-06-ini", [{"type": "exact_match", "expected": "8081"}])
     return root
+
+
+@pytest.fixture
+def tasks_dir(tmp_path: Path) -> Path:
+    return build_tasks_dir(tmp_path / "tasks")
 
 
 def write_task(root: Path, task_id: str, fixture_rel: str | None, graders: list[dict[str, Any]], prompt: str = "What is the server port? End with FINAL: <port>.") -> dict[str, Any]:
@@ -77,6 +80,7 @@ def make_spec(
     options: dict[str, Any] | None = None,
     tools: tuple[str, ...] = ("shell", "files"),
     max_steps: int = 15,
+    skills: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task = json.loads((tasks_dir / f"{task_id}.json").read_text(encoding="utf-8"))
     opts = {"mode": mode, **(options or {})}
@@ -97,7 +101,7 @@ def make_spec(
         "settings": {
             "tools": list(tools),
             "memory": memory or {"mode": "off", "fixture": None, "fixture_hash": None},
-            "skills": {"enabled": False, "preload": []},
+            "skills": skills or {"enabled": False, "preload": []},
             "temperature": 0,
             "max_steps": max_steps,
             "max_output_tokens": 512,
@@ -129,3 +133,24 @@ def pid_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+@pytest.fixture(scope="module")
+def stub():
+    from worker.tests.stub_model_server import StubServer
+
+    s = StubServer().start()
+    yield s
+    s.stop()
+
+
+@pytest.fixture(scope="module")
+def world(tmp_path_factory, stub):
+    """Tasks dir plus a memoizing trial runner that keeps trial dirs (see harness_world)."""
+    from worker.tests.harness_world import World
+
+    base = tmp_path_factory.mktemp("world")
+    mp = pytest.MonkeyPatch()
+    mp.setenv(KEY_ENV, SENTINEL_KEY)
+    yield World(base, build_tasks_dir(base / "tasks"), stub)
+    mp.undo()

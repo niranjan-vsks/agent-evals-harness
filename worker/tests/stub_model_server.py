@@ -19,6 +19,8 @@ Scenarios
   server_error        HTTP 500 on every request
   stall_on_3          steps 0 and 1 call the shell tool, step 2 never answers
   loop_tools          every step calls the shell tool (drives the max_steps cap)
+  padded              one answer with leading and trailing whitespace (H-11: kept verbatim)
+  risky_command       step 0 runs a recursive delete in the workspace, then answers (A-12: no prompt)
 """
 import json
 import threading
@@ -88,6 +90,14 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         return {"http": 500}
     if scenario == "rate_limit_twice" and n_request < 2:
         return {"http": 429}
+    if scenario == "padded":
+        return {"content": "  Done.\nFINAL: 8081  \n\n", "tool_calls": []}
+    if scenario == "risky_command":
+        shell = _find_tool(tools, "terminal", "shell", "bash")
+        if shell is not None and step < 1:
+            cmd = "mkdir -p zz_scratch && rm -rf zz_scratch && echo risky-done"
+            return {"content": "", "tool_calls": [_tool_call(0, shell["name"], json.dumps(_args_for(shell, cmd)))]}
+        return {"content": ANSWER, "tool_calls": []}
     if scenario == "echo_memory":
         return {"content": f"FINAL: {STAGING_DB}" if STAGING_DB in system else "FINAL: unknown", "tool_calls": []}
     if scenario in ("shell_then_answer", "stall_on_3", "loop_tools"):
@@ -139,7 +149,8 @@ def _make_handler(state: StubState):
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length) or b"{}")
             with state.lock:
-                n_request = len(state.requests)
+                # Counted per model slug so each scenario run starts its script from 0.
+                n_request = sum(1 for r in state.requests if r["body"].get("model") == body.get("model"))
                 state.requests.append({"path": self.path, "headers": dict(self.headers), "body": body})
             if not self.path.rstrip("/").endswith("/chat/completions"):
                 self._json(404, {"error": {"message": "not found"}})
