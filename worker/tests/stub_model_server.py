@@ -21,6 +21,18 @@ Scenarios
   loop_tools          every step calls the shell tool (drives the max_steps cap)
   padded              one answer with leading and trailing whitespace (H-11: kept verbatim)
   risky_command       step 0 runs a recursive delete in the workspace, then answers (A-12: no prompt)
+
+Judge scenarios (llm_judge, P2). The rubric ids are read from the "## Rubric" section of the
+prompt, so one scenario serves every rubric. The verdict is scripted, not judged.
+  judge_pass               every criterion met
+  judge_fail               the first criterion not met, "pass": false
+  judge_lying_pass         the first criterion not met, but "pass": true (the grader must not trust it)
+  judge_garbage_then_pass  step 0 is prose with no JSON, then a valid pass (the retry rule)
+  judge_garbage            never valid
+  judge_wrong_ids_then_pass  step 0 names a criterion that is not in the rubric, then a valid pass
+  judge_fenced             a valid pass inside a markdown fence with prose around it
+  judge_no_json_mode       HTTP 400 when response_format is sent, a valid pass without it
+  judge_429_once          HTTP 429 on the first request, then a valid pass
 """
 import json
 import re
@@ -91,6 +103,8 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         return {"http": 500}
     if scenario == "rate_limit_twice" and n_request < 2:
         return {"http": 429}
+    if scenario.startswith("judge_"):
+        return _judge_plan(scenario, body, step, n_request)
     if scenario == "padded":
         return {"content": "  Done.\nFINAL: 8081  \n\n", "tool_calls": []}
     if scenario == "risky_command":
@@ -118,6 +132,48 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         if fn is not None:
             return {"content": "", "tool_calls": [_tool_call(0, fn["name"], "{not valid json")]}
     return {"content": ANSWER, "tool_calls": []}
+
+
+_RUBRIC_LINE = re.compile(r"^\d+\. \[([a-z][a-z0-9_]*)\]", re.MULTILINE)
+
+
+def _rubric_ids(body: dict[str, Any]) -> list[str]:
+    text = " ".join(str(m.get("content")) for m in body.get("messages", []) if m.get("role") == "user")
+    section = text.split("## Rubric", 1)[-1].split("## Output to grade", 1)[0]
+    return _RUBRIC_LINE.findall(section)
+
+
+def _verdict(ids: list[str], met: list[bool], model_pass: bool, reasoning: str) -> str:
+    criteria = [{"id": i, "met": m, "evidence": f"scripted evidence for {i}"} for i, m in zip(ids, met)]
+    return json.dumps({"criteria": criteria, "pass": model_pass, "reasoning": reasoning})
+
+
+def _judge_plan(scenario: str, body: dict[str, Any], step: int, n_request: int) -> dict[str, Any]:
+    ids = _rubric_ids(body)
+    all_met = [True] * len(ids)
+    first_unmet = [False] + [True] * (len(ids) - 1)
+    ok = {"content": _verdict(ids, all_met, True, "scripted: every criterion is met"), "tool_calls": []}
+    if scenario == "judge_pass":
+        return ok
+    if scenario == "judge_fail":
+        return {"content": _verdict(ids, first_unmet, False, "scripted: the first criterion is not met"), "tool_calls": []}
+    if scenario == "judge_lying_pass":
+        return {"content": _verdict(ids, first_unmet, True, "scripted: claims a pass the criteria do not support"), "tool_calls": []}
+    if scenario == "judge_garbage_then_pass":
+        return ok if step >= 1 else {"content": "Looks fine to me, nicely done.", "tool_calls": []}
+    if scenario == "judge_garbage":
+        return {"content": "Looks fine to me, nicely done.", "tool_calls": []}
+    if scenario == "judge_wrong_ids_then_pass":
+        if step >= 1:
+            return ok
+        return {"content": _verdict(["not_in_the_rubric"], [True], True, "scripted: wrong ids"), "tool_calls": []}
+    if scenario == "judge_fenced":
+        return {"content": "Here is my verdict:\n```json\n" + ok["content"] + "\n```\nThat is all.", "tool_calls": []}
+    if scenario == "judge_no_json_mode":
+        return {"http": 400} if "response_format" in body else ok
+    if scenario == "judge_429_once":
+        return {"http": 429} if n_request < 1 else ok
+    return {"content": "unknown judge scenario " + scenario, "tool_calls": []}
 
 
 _DB_PROSE = re.compile(r"host\s+([\w.-]+),?\s+port\s+(\d+)")

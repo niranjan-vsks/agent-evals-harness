@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsJson, TrialResult, TrialSpec } from '../worker-client/types';
 import { WorkerClient, WorkerUnavailableError } from '../worker-client/worker-client';
 import { erroredResult, IngestedTrial, ingest, IngestError, PriceSnapshot } from './ingest';
+import { resolveJudgeModel } from '../judge/judge-model';
 import { trialSeed } from './seed';
 import { TrialsQuery } from './trials.query';
 
@@ -57,6 +58,8 @@ export class AdhocService {
       input_price_per_mtok: config.model.inputPricePerMtok.toNumber(),
       output_price_per_mtok: config.model.outputPricePerMtok.toNumber(),
     };
+
+    const judgeModel = await resolveJudgeModel(this.prisma, task.graders as unknown[]);
 
     let manifest: unknown = {};
     try {
@@ -128,6 +131,7 @@ export class AdhocService {
         graders: task.graders as unknown[],
       },
       memory_seed: memorySeed,
+      ...(judgeModel ? { judge_model: judgeModel } : {}),
     };
 
     let result: TrialResult;

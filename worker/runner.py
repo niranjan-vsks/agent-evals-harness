@@ -123,9 +123,9 @@ def _child_env(cfg: RunnerConfig, parsed: ParsedSpec, trial_dir: Path) -> dict[s
         PYTHONUTF8="1",
         PYTHONIOENCODING="utf-8",
     )
-    key_name = parsed.model.api_key_env
-    if key_name in os.environ:
-        env[key_name] = os.environ[key_name]
+    for model in (parsed.model, parsed.judge_model):
+        if model is not None and model.api_key_env in os.environ:
+            env[model.api_key_env] = os.environ[model.api_key_env]
     return env
 
 
@@ -236,11 +236,14 @@ def run_trial(spec: dict[str, Any], cfg: RunnerConfig | None = None) -> dict[str
     if adapter is None:
         return _error_result(spec, "config_invalid", f"unknown harness {parsed.harness!r}")
 
-    key_name = parsed.model.api_key_env
-    if key_name not in os.environ:
-        # Not retryable: retrying a worker that was started without the key cannot help.
-        return _error_result(spec, "config_invalid", f"the worker has no environment variable {key_name} (the model's api_key_env)")
-    secrets = [os.environ[key_name]]
+    secrets: list[str] = []
+    for model in (parsed.model, parsed.judge_model):
+        if model is None:
+            continue
+        if model.api_key_env not in os.environ:
+            # Not retryable: retrying a worker that was started without the key cannot help.
+            return _error_result(spec, "config_invalid", f"the worker has no environment variable {model.api_key_env} (the api_key_env of model {model.id})")
+        secrets.append(os.environ[model.api_key_env])
     task_id = parsed.task["id"]
 
     # R-6: the task on disk must be the task the experiment pinned.
@@ -361,7 +364,7 @@ def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir:
         except Exception:  # noqa: BLE001 - best effort; the trial is still scored
             memory_final = {}
         usage = _usage_from_events(events)
-        graders = [g.to_dict() for g in failed_for_timeout(parsed.task.get("graders", []))]
+        graders = [g.to_dict() for g in failed_for_timeout(parsed.task.get("graders", []), parsed.judge_model)]
         return {
             "trial_id": parsed.trial_id,
             "attempt": parsed.attempt,

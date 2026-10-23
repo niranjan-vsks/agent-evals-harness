@@ -7,7 +7,8 @@ TrialSpec JSON:
   "settings": {tools, memory: {mode, fixture, fixture_hash}, skills: {enabled, preload},
                temperature, max_steps, max_output_tokens, timeout_seconds, harness_options},
   "task": {id, version_hash, prompt, fixture_dir (relative to tasks/, or null), memory_fixture, graders},
-  "memory_seed": {"MEMORY.md": str, "USER.md": str} | null
+  "memory_seed": {"MEMORY.md": str, "USER.md": str} | null,
+  "judge_model": ModelSpec JSON | null    (required when a grader is llm_judge)
 }
 The API key never appears here, only the name of the env var (ADAPTERS M-4).
 """
@@ -82,6 +83,7 @@ class ParsedSpec:
     settings: Settings
     task: dict[str, Any]
     memory_seed: dict[str, str] | None
+    judge_model: ModelSpec | None = None
 
 
 def parse_trial_spec(spec: dict[str, Any]) -> ParsedSpec:
@@ -93,6 +95,12 @@ def parse_trial_spec(spec: dict[str, Any]) -> ParsedSpec:
     seed = spec.get("memory_seed")
     if seed is not None and not (isinstance(seed, dict) and all(isinstance(v, str) for v in seed.values())):
         raise SpecError("spec.memory_seed must be an object of strings or null")
+    judge = spec.get("judge_model")
+    if judge is not None and not isinstance(judge, dict):
+        raise SpecError("spec.judge_model must be an object or null")
+    graders = task.get("graders", [])
+    if any(isinstance(g, dict) and g.get("type") == "llm_judge" for g in graders) and judge is None:
+        raise SpecError("spec.judge_model is required: the task has an llm_judge grader")
     trial_id = _req(spec, "trial_id", str, "spec")
     if not trial_id or any(c in trial_id for c in "/\\.") or len(trial_id) > 64:
         raise SpecError("spec.trial_id must be a short id without path separators")
@@ -105,6 +113,7 @@ def parse_trial_spec(spec: dict[str, Any]) -> ParsedSpec:
         settings=settings_from_dict(_req(spec, "settings", dict, "spec")),
         task=task,
         memory_seed=seed,
+        judge_model=model_from_dict(judge) if judge is not None else None,
     )
 
 

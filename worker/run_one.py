@@ -30,6 +30,10 @@ def load_context(payload: dict) -> tuple[TrialContext, list[dict]]:
     return ctx, parsed.task.get("graders", [])
 
 
+def load_judge_model(payload: dict):
+    return parse_trial_spec(payload["spec"]).judge_model
+
+
 def main(spec_path: str) -> int:
     payload = json.loads(Path(spec_path).read_text(encoding="utf-8"))
     ctx, graders = load_context(payload)
@@ -48,7 +52,7 @@ def main(spec_path: str) -> int:
         "run_ms": run_ms,
     }
     try:
-        result["grader_results"] = [g.to_dict() for g in run_graders(graders, ctx, run_result)]
+        result["grader_results"] = [g.to_dict() for g in run_graders(graders, ctx, run_result, load_judge_model(payload))]
     except GraderError as e:
         result["grader_error"] = str(e)
 

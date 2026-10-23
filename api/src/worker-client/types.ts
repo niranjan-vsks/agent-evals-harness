@@ -58,6 +58,8 @@ export interface TrialSpec {
     graders: unknown[];
   };
   memory_seed: Record<string, string> | null;
+  /** Present exactly when a grader is llm_judge: the registry row of JUDGE_MODEL_ID. */
+  judge_model?: ModelSpecJson | null;
 }
 
 export type ExitReason = 'completed' | 'max_steps' | 'timeout' | 'invalid_tool_call' | 'agent_error';

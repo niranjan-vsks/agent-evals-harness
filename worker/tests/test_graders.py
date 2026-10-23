@@ -181,7 +181,7 @@ class TestRunGraders:
 
     def test_unimplemented_types_are_a_grader_error(self, workspace, fixture_dir):
         with pytest.raises(GraderError, match="not implemented"):
-            run_graders([{"type": "llm_judge"}], make_ctx(workspace, fixture_dir), make_result("x"))
+            run_graders([{"type": "bogus"}], make_ctx(workspace, fixture_dir), make_result("x"))
 
     def test_timeout_scoring_has_one_failed_row_per_grader(self):
         rows = failed_for_timeout([{"type": "exact_match"}, {"type": "file_state"}])
