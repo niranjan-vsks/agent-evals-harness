@@ -49,17 +49,25 @@ judge tooling. P3 experiments + scheduler + stats + exports. P4 UI. P5 the real
 experiment + README + video script. P6 failure categories (stretch). After P3 the
 submission is coherent without the UI.
 
-**Status.** P1 is built and tested on the host. It is NOT done: gates 2, 4 and 5 and
-`docker compose build` were NOT RUN because Docker is not installed on this machine. Next
-action: see the P1 section, "Next action".
+**Status.** P1 is done: all 5 gates passed (gates 1 and 3 on the host, gates 2, 3, 4 and 5 in
+the compose stack). Next action: P2 (`cards/P2.md`); see the P1 section, "Next action".
 
 ---
 
 ## P1: Foundation, worker runner, Hermes adapter, 1 trial end to end
 
-Built on Windows 11 with Node 24.14, Python 3.14.4 (via uv), an embedded PostgreSQL 16.14 for
-the API tests, and no Docker. Commits: `S1`, `S2`, `S3`, `S4`, `S5` (one per slice, slice
-name in the message).
+Built on Windows 11 with Node 24.14, Python 3.14.4 (via uv) and an embedded PostgreSQL 16.14
+for the host API tests; gates 2 to 5 then ran in Docker Desktop 4.96.1 (engine 29.9.2, Compose
+5.6.0). Commits: `S1`, `S2`, `S3`, `S4`, `S5` (one per slice, slice name in the message), a
+close-out commit, and `P1 gates 2-5`.
+
+**Docker on this machine.** Before any `docker` command set `DOCKER_BUILDKIT=0` and
+`COMPOSE_BAKE=false` (bash: `export DOCKER_BUILDKIT=0 COMPOSE_BAKE=false`; PowerShell:
+`$env:DOCKER_BUILDKIT=0; $env:COMPOSE_BAKE="false"`). Every image here was built with the
+classic builder (each carries the label `com.docker.compose.image.builder=classic`); a build
+with BuildKit or Bake was not tried. The images may already exist: run `docker compose up -d`
+and `docker compose ps` before rebuilding. From Git Bash also set `MSYS_NO_PATHCONV=1`, or it
+rewrites container paths such as `/tmp/x` passed to `docker compose exec`.
 
 ### Shipped
 
@@ -110,19 +118,30 @@ name in the message).
 
 ### Verified
 
-Everything below ran on the host. Nothing ran inside a container.
+Rows 1 ran on the host; rows 2, 3, 4 and 5 ran in the compose stack (db, api, worker, web,
+all healthy, worker image on `python:3.14.9`).
 
 | Gate | Result |
 |---|---|
 | 1 Harness, worker | `cd worker && pytest -q`: 110 passed in 506.73 s, `110 of 110 passed`, 0 failed, 1 deprecation warning (starlette TestClient) |
 | 1 Harness, api | `cd api && npm test`: default `Tests: 115 passed, 3 skipped, 118 total` (the 3 skipped are the stub walk, which needs Python); with `E2E_PYTHON` set `118 passed, 118 total`, `118 of 118 passed` |
 | 1 Mutation test | `worker/trace.py` `TraceWriter.emit` changed to buffer instead of flush (H-7 broken). The stall tests went red: `test_adapter_conformance.py::test_h7_events_survive_a_kill[hermes]`, `test_runner.py::test_r4_trace_is_assembled_from_disk_after_a_kill` and `test_runner.py::test_r2_killed_child_process_is_gone` (3 failed, 0 passed, trace empty after the kill). The file was restored from a copy and the suites re-run green. |
-| 2 Audit in containers | NOT RUN. `docker` is not installed; `docker compose version` fails with "command not found" and WSL is not installed. |
-| 3 Typecheck and build | `cd api && npm run build`: exit 0, 0 errors (Prisma client generated, `nest build`). `docker compose build`: NOT RUN. |
-| 4 The walk under compose | NOT RUN. The 2 trial ids the gate needs are therefore not available. |
-| 5 Live | NOT RUN (it is gate 4). |
+| 2 Audit, api | `docker compose exec api npm test` against the real db (it creates `evals_test` on the `db` service): exit 0, `Tests: 115 passed, 3 skipped, 118 total` (the 3 skipped are the stub walk, no Python in the api image), `115 of 115 passed` of those that can run there. |
+| 2 Audit, worker | `docker compose exec worker pytest -q`: exit 0, `110 passed` in 296.80 s, `110 of 110 passed`. Same count as on the host. This was the first run of the Linux half of R-2 (`os.killpg`, SIGTERM then SIGKILL): the stall and kill tests (`test_h7_events_survive_a_kill`, `test_r2_*`, `test_r4_*`) passed. |
+| 3 Typecheck and build | `cd api && npm run build`: exit 0, 0 errors. `docker compose build` (classic builder): exit 0, all 3 built images (api, worker, web) built clean; db is the stock `postgres:16`. |
+| 4 The walk under compose | `docker compose exec api node scripts/walk.mjs http://localhost:3000 model-b`, real `OPENROUTER_API_KEY` from `.env` inside the worker container: `WALK PASSED`, 16 of 16 checks. `POST /configs` 201 with `config_hash` `ea19b62c2fd24ca127ca41dcb8daba79fd284075c2ac957070c5b83ee8379d02` (the same hash as on the host: same harness version, model slug and settings), then 200 with the same id `01M5NE71ZFQ0XTQDWE96K1TPCX`. Trace of the first trial: `message`, `tool_call`, `tool_result`, `api_call`, `final_response` "FINAL: 8081", `grader_results[0].passed = true`. The second trial, under a memory-seeded config, has a `memory_read` event and "pg-stage-07" in the system prompt. Re-read through the published port from the host (`GET :3000/trials/<id>/trace`; the web placeholder answers 200 on :8080). |
+| 5 Live | Gate 4 is it; passed as above. |
 
-Host equivalents of gate 4. They are not gate 4, and no row below stands in for it:
+**The 2 trial ids (gate 4, compose, real key, `model-b` = `openai/gpt-oss-20b`):**
+
+- `01M5NE722575PF04RDV0EANEHA` : `det-06-ini`, memory off. done, passed, `completed`, 2 steps, 8,528 input and 72 output tokens, 0.000160 USD, 39.0 s.
+- `01M5NE8AEP13RCAG51V1CRHKA8` : `mem-01-staging-db`, memory seeded with `team-memory-v1`. done, passed, `completed`, 1 step, 5,227 input and 107 output tokens, 0.000104 USD, 23.0 s.
+
+Both rows are in the compose `dbdata` volume. Event token sums equal the session totals again
+(A-7).
+
+Earlier host equivalents of gate 4, kept as history (the database of the real-key host run was
+discarded, so its ids no longer resolve):
 
 - Stub model, real worker, real Hermes (`api/src/trials/stub-walk.e2e.spec.ts`, needs
   `E2E_PYTHON`): POST /configs 201 then 200 with the same id, `det-06-ini` passes with
@@ -160,13 +179,15 @@ and `tasks/` holds task definitions here).
 
 ### Found but not fixed
 
-1. **No container has been built or run.** The Dockerfiles, `docker-compose.yml`, the health
-   checks and the `api` start command (`prisma migrate deploy && node dist/main`) are written
-   and unexecuted. The Linux half of R-2 (`os.killpg` with SIGTERM then SIGKILL) has never
-   run; the host run used `taskkill /T /F`. A-1 is not verified on `python:3.14-slim`.
-2. **Trials are slow on this host.** 13 to 25 s of Hermes import and init per trial (7.7 s
-   import, 2.9 s init), 1 to 4 s per `terminal` call on Windows, 52 s end to end for
-   `det-06-ini` with the real model. P5 has 2 configs x 22 tasks x N (about 5) trials.
+1. **Resolved by `P1 gates 2-5`:** the containers build and run, A-1 holds on
+   `python:3.14-slim`, and the Linux kill path passed its tests. Still untested: a build with
+   BuildKit or Bake (see "Docker on this machine"), and a clean-clone `docker compose up` on a
+   machine that has none of the images (the images here were built from this working tree).
+2. **Trials are slow.** On the Windows host 13 to 25 s of Hermes import and init per trial
+   (7.7 s import, 2.9 s init), 1 to 4 s per `terminal` call, 52 s end to end for `det-06-ini`
+   with the real model. In the Linux containers the same trial took 39.0 s (23.0 s for
+   `mem-01-staging-db`). P5 has 2 configs x 22 tasks x N (about 5) trials: at 25 to 40 s
+   each, 220 trials is 1.5 to 2.5 hours at concurrency 1.
 3. **`model-a` takes no `temperature` or `seed`** on OpenRouter (its `supported_parameters`
    lacks both), so a temperature of 0 may be dropped for it. `model-b` takes both. Matters for
    the judge and for the secondary experiment.
@@ -198,8 +219,9 @@ and `tasks/` holds task definitions here).
 ### Assumptions resolved
 
 - **A-1** Confirmed on the host (Windows, Python 3.14.4): `uv pip install -e` resolved every
-  dependency including `nemo-relay` 0.10.4, no compiler needed. NOT verified on
-  `python:3.14-slim` (no Docker); the card's fallbacks were not needed and not applied.
+  dependency including `nemo-relay` 0.10.4, no compiler needed. Also confirmed on
+  `python:3.14-slim` (the worker image installs Hermes with `pip install -e`, no compiler, on
+  Python 3.14.9); the card's fallbacks were not needed and not applied.
 - **A-2** Confirmed. `run_agent`, `toolsets`, `hermes_constants`, `tools.memory_tool` and
   `tools.skills_sync` import after the editable install; no `PYTHONPATH` needed for Hermes.
 - **A-3** Confirmed with 3 corrections. The nesting is as written and `agent.max_iterations`
@@ -235,14 +257,6 @@ and `tasks/` holds task definitions here).
 
 ### Next action
 
-1. Install and start Docker Desktop; `docker compose version` must print a version.
-2. `docker compose up -d --build`; `docker compose ps` must show db, api, worker and web
-   healthy. If the worker image fails on the Hermes install, apply the A-1 fallbacks (add
-   `build-essential`; then `--no-deps` minus `nemo-relay`) and report the pip output if that
-   fails too (card section 9).
-3. Gate 2: `docker compose exec api npm test` and `docker compose exec worker pytest -q`; both
-   must exit 0 with the real database. Record N of N here. This is the first run of the Linux
-   kill path.
-4. Gate 4: `docker compose exec api node scripts/walk.mjs http://localhost:3000 model-b`
-   (needs the real key in `.env`). Paste the 2 trial ids here and mark gates 2, 3, 4 and 5.
-5. Then P2 (`cards/P2.md`).
+Claim P2 (`cards/P2.md` section 0). To get the P1 stack back: set the Docker variables above,
+`docker compose up -d`, `docker compose ps` (db, api, worker, web healthy), and re-run
+`docker compose exec api node scripts/walk.mjs http://localhost:3000 model-b` as a smoke test.
