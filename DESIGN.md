@@ -532,11 +532,20 @@ actual spend.
 ## 11. Contract findings
 
 Every place ADAPTERS.md did not match what building against it required, with the reason.
-ADAPTERS.md itself was not edited. Entries 1 to 9 come from the Hermes adapter (P1); the
-minimal loop's findings are `TBD by P2`.
+ADAPTERS.md itself was not edited. Entries 1 to 9 come from the Hermes adapter (P1); entries
+10 to 16 come from the minimal loop (P2).
 
-No invariant H-1 to H-11, M-1, M-3, M-4 or R-1 to R-8 had to be weakened. Entries 2, 6, 7, 8
-and 9 say how the text of M-1, M-3, H-9, H-11 and H-4 was read.
+No invariant H-1 to H-11, M-1, M-3, M-4 or R-1 to R-8 had to be weakened, for either adapter.
+Entries 2, 6, 7, 8 and 9 say how the text of M-1, M-3, H-9, H-11 and H-4 was read.
+
+The minimal loop passed the conformance suite on its first run with no change to
+`test_adapter_conformance.py`, `runner.py` or `graders/`. The invariants that took design
+effort, in order: M-3 (every request that reaches the provider must be an `api_call` event,
+so the retry loop emits one event per attempt and the library's own retries are off), H-8
+(`collect_memory` runs in a fresh process, so `prepare` writes the seed to
+`trial_dir/memory/` and the system prompt is built from the same seed in `run`), and H-6
+(tool execution errors, a provider that returns no choices and malformed arguments all had to
+become results, not exceptions).
 
 1. **Validate endpoint verb.** ADAPTERS 2 says the worker's `GET /adapters/{id}/validate`.
    The settings travel in a body, so the worker serves `POST /adapters/{id}/validate`
@@ -584,6 +593,50 @@ and 9 say how the text of M-1, M-3, H-9, H-11 and H-4 was read.
    configured set. The adapter writes `tools.tool_search.enabled: "off"` into the trial
    config so the model is offered exactly the tools of the 2 toolsets (`terminal`,
    `process_manage`, `read_file`, `write_file`, `patch`, `search_files`).
+
+10. **Where the minimal loop's memory lives on disk.** ADAPTERS 4 puts the seed in the system
+    prompt and says nothing about `collect_memory` (H-8, which reads only from disk). `prepare`
+    writes `MEMORY.md` and `USER.md` to `trial_dir/memory/` (outside the workspace, so the
+    agent cannot read or edit them) and `collect_memory` reads them back. `memory_final`
+    equals the seed, which is correct because `memory_writes` is false.
+11. **"5 tries" (DESIGN 6.3, ADAPTERS 4) is read as 1 request plus up to 5 retries.** The
+    waits are 1, 2, 4, 8 and 16 s, so a call that never succeeds makes 6 requests and sleeps
+    31 s. A 429, a 5xx, a dropped connection and a 200 with no `choices` are retried; any other
+    4xx is not. Each request is its own `api_call` event (`retry` while a wait follows, `error`
+    for the last). A response with no `choices` has `http_status: null`.
+12. **Malformed calls (ADAPTERS 4, "3 consecutive malformed calls").** ADAPTERS names only
+    JSON parse failure. The loop also treats a non-object argument, a missing or non-string
+    required argument and a tool name that was not offered as malformed, because none of them
+    can be executed. A call that is well formed and fails (a missing file, a path outside the
+    workspace, a non-zero exit, a timeout) is an ordinary error result and does not count. A
+    well formed call resets the count. In the message history the loop replays a malformed
+    call's arguments as `{}`: providers reject invalid JSON in an assistant message, and a
+    rejected history would turn a scored model fault into an infrastructure error. The trace
+    keeps the raw text (`args: {"raw_arguments": ...}`) and the tool result quotes its first
+    200 characters.
+13. **The last step's tool calls are executed.** When the model's `max_steps`-th reply asks for
+    tools, the loop runs them and then stops with `max_steps`; it does not ask for a
+    summary (Hermes does, entry 7). `steps` equals `max_steps` in that case.
+14. **`retryable` on the `error` event means "infrastructure", not "worth retrying".** The
+    runner (`_provider_failure`) turns an `agent_error` into an errored trial only when the
+    `error` event says `retryable: true`, and then picks the class from the last call's HTTP
+    status (400, 401, 403, 404 and 422 are `config_invalid`). The minimal loop sets
+    `retryable: true` for every provider failure, which is what DESIGN 6.3 asks for. The
+    Hermes adapter sets it only for 429, 5xx and a missing status (`last_error_retryable`),
+    so under Hermes a 401 is a scored `agent_error` and not a `config_invalid` error. The two
+    adapters therefore disagree on DESIGN 6.3 for 4xx. The conformance suite does not cover it
+    (the stub has no 4xx scenario for the main loop). Not fixed in P2; see STATE.md, "Found but
+    not fixed".
+15. **`seed` (A-8).** The minimal loop sends `seed` on every request. OpenRouter lists `seed`
+    in `supported_parameters` for some models and not others (STATE.md: `model-a` lists
+    neither `seed` nor `temperature`, `model-b` lists both), and drops what a model does not
+    support. `capabilities.seed` stays `True`, as ADAPTERS 4 fixes, and the value means "sent",
+    not "honored by every model". The adapter does not read the model row to decide (M-1).
+16. **Size and tool output.** The adapter is about 340 lines with its docstrings and blank
+    lines, not the 150 ADAPTERS 4 estimates; the extra is the retry schedule, the process-group
+    kill for a timed-out shell command (so a background grandchild cannot hold the output pipe
+    open) and the path guard. Tool output shown to the model is cut at 10,000 characters with a
+    notice; the trace keeps the cut text (the runner's own limit is 20,000 per field).
 
 Not findings about ADAPTERS.md but decisions it left open, recorded here so P2 inherits them:
 
