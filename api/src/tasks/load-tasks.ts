@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { readFixtureEntries } from './fixture-files';
 import { memoryFixtureHash, taskHash } from './hash';
+import { lintTask } from './lint-rules';
 import { findNonIntegers, TaskFile, TaskFileData } from './task-schema';
 
 export interface LoadedTask {
@@ -95,6 +96,11 @@ export function loadTasks(tasksDir: string = defaultTasksDir()): LoadResult {
         errors.push(`${file}: fixture_dir "${data.fixture_dir}" does not exist`);
         continue;
       }
+    }
+    const problems = lintTask(data, fixtureRoot);
+    if (problems.length) {
+      errors.push(...problems.map((p) => `${file}: ${p}`));
+      continue;
     }
     tasks.push({ data, versionHash: taskHash(raw as Record<string, unknown>, readFixtureEntries(fixtureRoot)), file });
   }

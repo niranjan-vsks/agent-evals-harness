@@ -6,6 +6,9 @@ from typing import Any
 from worker.adapters.base import HarnessRunResult, TrialContext
 from worker.graders.exact_match import SpecProblem, grade_exact_match
 from worker.graders.file_state import grade_file_state
+from worker.graders.trace_check import grade_trace_check
+from worker.graders.unit_test import grade_unit_test
+from worker.trace import read_events
 
 
 class GraderError(RuntimeError):
@@ -46,8 +49,12 @@ def run_graders(graders: list[dict[str, Any]], ctx: TrialContext, run_result: Ha
                 passed, details = grade_exact_match(spec, run_result.final_response)
             elif kind == "file_state":
                 passed, details = grade_file_state(spec, ctx.workspace_dir, ctx.task.fixture_dir)
+            elif kind == "unit_test":
+                passed, details = grade_unit_test(spec, ctx.workspace_dir, ctx.task.fixture_dir)
+            elif kind == "trace_check":
+                passed, details = grade_trace_check(spec, read_events(ctx.events_path))  # from disk, as the runner does (R-4)
             else:
-                raise GraderError(f"grader type {kind!r} is not implemented in P1")
+                raise GraderError(f"grader type {kind!r} is not implemented")
         except SpecProblem as e:
             raise GraderError(f"grader {index} ({kind}): {e}") from e
         results.append(

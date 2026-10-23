@@ -179,7 +179,7 @@ class TestRunGraders:
         with pytest.raises(GraderError):
             run_graders([{"type": "exact_match"}], make_ctx(workspace, fixture_dir), make_result("x"))
 
-    def test_unimplemented_types_are_a_grader_error_in_p1(self, workspace, fixture_dir):
+    def test_unimplemented_types_are_a_grader_error(self, workspace, fixture_dir):
         with pytest.raises(GraderError, match="not implemented"):
             run_graders([{"type": "llm_judge"}], make_ctx(workspace, fixture_dir), make_result("x"))
 
