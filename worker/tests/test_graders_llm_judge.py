@@ -206,6 +206,15 @@ class TestAgainstTheStub:
         assert "UNIQUE-FINAL-TEXT" in content and "Summarize the incident." in content and "Names the fix." in content
         assert "tools" not in body
 
+    def test_the_text_the_judge_saw_is_kept_for_the_blind_labeller(self, stub, tmp_path):
+        (tmp_path / "RELEASE.md").write_text("FILE-BODY-123", encoding="utf-8")
+        spec = {**SPEC, "inputs": ["final_response", "workspace_file:RELEASE.md"]}
+        out = judge(stub, "judge_pass", final="THE-ANSWER", workspace=str(tmp_path), spec=spec)
+        assert out.details["judged_inputs"] == [
+            {"name": "final_response", "text": "THE-ANSWER"},
+            {"name": "workspace_file:RELEASE.md", "text": "FILE-BODY-123"},
+        ]
+
     def test_usage_is_recorded_for_cost(self, stub):
         out = judge(stub, "judge_garbage_then_pass")
         assert out.details["usage"]["input_tokens"] > 0 and out.details["usage"]["output_tokens"] > 0

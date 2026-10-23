@@ -1,0 +1,12 @@
+[http]
+timeout = 30
+connect_timeout = 5
+retries = 3
+
+[database]
+url = "postgres://localhost/app"
+pool_size = 10
+statement_timeout = 15
+
+[logging]
+level = "info"

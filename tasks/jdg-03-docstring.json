@@ -1,0 +1,44 @@
+{
+  "id": "jdg-03-docstring",
+  "category": "neutral_judged",
+  "prompt": "Write a docstring for the function parse_duration in util.py. Reply with the docstring text only, without the surrounding quotes.",
+  "fixture_dir": "fixtures/jdg-03-docstring",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "llm_judge",
+      "rubric": [
+        {
+          "id": "c1",
+          "criterion": "Describes the argument: a string made of one or more number-and-unit parts, with the units s, m, h and d and no other units."
+        },
+        {
+          "id": "c2",
+          "criterion": "States the return value: the total duration as an integer number of seconds."
+        },
+        {
+          "id": "c3",
+          "criterion": "States that ValueError is raised for an empty or malformed string."
+        },
+        {
+          "id": "c4",
+          "criterion": "Includes at least one concrete example call, and the result shown for it is correct for the code in util.py."
+        }
+      ],
+      "pass_rule": "all",
+      "inputs": [
+        "final_response",
+        "workspace_file:util.py"
+      ],
+      "judge_model_id": null
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "judged",
+    "docstring"
+  ]
+}

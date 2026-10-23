@@ -58,7 +58,7 @@ def _scrub(text: str, secrets: list[str]) -> str:
     for s in secrets:
         if s:
             text = text.replace(s, "[REDACTED]")
-    return text
+    return text.replace("\x00", "")  # PostgreSQL jsonb cannot store NUL; tool output and judged files can contain it
 
 
 def _scrub_deep(value: Any, secrets: list[str]) -> Any:

@@ -10,14 +10,20 @@ workspace (R-5), and are copied in here, over anything the agent wrote at the sa
 
 The command runs with the worker's own interpreter first on PATH, so `python -m pytest`
 means the same thing on every host. PYTEST_ADDOPTS keeps `.pytest_cache` out of the workspace
-(a file_state check could trip on it). The bound on a hanging test is the command timeout;
-there is no per-test timeout because that needs a pytest plugin the worker does not install.
+(a file_state check could trip on it), ignores every conftest.py, and points pytest at an empty
+ini file outside the workspace, so a conftest.py or pytest.ini the agent wrote cannot change what
+the hidden tests mean. It does not stop a module in the workspace that shadows pytest or the
+standard library: there is no sandbox (DESIGN 13). The bound on a hanging test is the command
+timeout; there is no per-test timeout because that needs a pytest plugin the worker does not
+install.
 """
 import os
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -71,19 +77,24 @@ def grade_unit_test(spec: dict[str, Any], workspace_dir: str, fixture_dir: str |
 
     env = dict(os.environ)
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
-    env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    proc = subprocess.Popen(
-        command, shell=True, cwd=workspace_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding="utf-8", errors="replace", start_new_session=os.name != "nt",
-    )
     timed_out = False
-    try:
-        output, _ = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill(proc)
-        output, _ = proc.communicate()
+    with tempfile.TemporaryDirectory(prefix="grader-") as scratch:
+        ini = Path(scratch) / "pytest.ini"
+        ini.write_text("[pytest]\n", encoding="utf-8")
+        env["PYTEST_ADDOPTS"] = " ".join(
+            shlex.quote(a) for a in ("-p", "no:cacheprovider", "--noconftest", "-c", ini.as_posix(), "--rootdir", Path(workspace_dir).resolve().as_posix())
+        )
+        proc = subprocess.Popen(
+            command, shell=True, cwd=workspace_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", start_new_session=os.name != "nt",
+        )
+        try:
+            output, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill(proc)
+            output, _ = proc.communicate()
     exit_code = None if timed_out else proc.returncode
     return (not timed_out and exit_code == 0), {
         "command": command,

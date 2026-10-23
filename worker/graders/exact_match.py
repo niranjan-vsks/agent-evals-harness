@@ -4,13 +4,17 @@
  "normalize":["trim","lowercase","collapse_whitespace"], "extract":"final_line"}
 
 extract final_line: the last line matching ^FINAL:\\s*(.+)$ ; when there is none, the whole
-response. Normalization is applied to the extracted answer and to every expected value.
+response. The marker may be preceded by markdown (`**FINAL: x**`, `> FINAL: x`), and the answer is
+cleaned of surrounding `*`, `_`, backticks and whitespace and of one trailing full stop, because a
+correct answer in bold is still correct. The content is not loosened: no thousands separators, no
+units, no other text. Normalization is applied to the extracted answer and to every expected value.
 expected_regex, when set, must match the whole normalized answer.
 """
 import re
 from typing import Any
 
-_FINAL = re.compile(r"^FINAL:[ \t]*(.+)$", re.MULTILINE)
+_FINAL = re.compile(r"^[ \t>*_`-]*FINAL:[ \t]*(.+)$", re.MULTILINE)
+_WRAP = " \t*_`"
 _NORMALIZERS = {
     "trim": lambda s: s.strip(),
     "lowercase": lambda s: s.lower(),
@@ -36,8 +40,15 @@ def extract_answer(response: str, mode: str) -> tuple[str, bool]:
         raise SpecProblem(f"unknown extract mode {mode!r}")
     matches = _FINAL.findall(response)
     if matches:
-        return matches[-1].rstrip("\r"), False
+        return _clean(matches[-1]), False
     return response, True
+
+
+def _clean(answer: str) -> str:
+    answer = answer.rstrip("\r").strip(_WRAP)
+    if answer.endswith(".") and not answer.endswith(".."):
+        answer = answer[:-1].strip(_WRAP)
+    return answer
 
 
 def grade_exact_match(spec: dict[str, Any], final_response: str | None) -> tuple[bool, dict[str, Any]]:
@@ -45,6 +56,11 @@ def grade_exact_match(spec: dict[str, Any], final_response: str | None) -> tuple
     expected_regex = spec.get("expected_regex")
     if expected is None and expected_regex is None:
         raise SpecProblem("exact_match needs expected or expected_regex")
+    if expected_regex is not None:
+        try:
+            re.compile(expected_regex)
+        except (re.error, TypeError) as e:
+            raise SpecProblem(f"expected_regex {expected_regex!r} is not a valid regular expression: {e}") from e
     ops = list(spec.get("normalize", ["trim"]))
     mode = spec.get("extract", "final_line")
     if final_response is None:

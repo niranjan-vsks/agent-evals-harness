@@ -28,7 +28,7 @@ const ExactMatch = z
 
 const FileCheck = z.union([
   z.object({ path: RelPath, exists: z.boolean() }).strict(),
-  z.object({ path: RelPath, json_path: z.string().startsWith('$'), equals: z.json() }).strict(),
+  z.object({ path: RelPath, json_path: z.string().regex(/^\$(\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*$/, 'json_path supports only $, .key and [index]'), equals: z.json() }).strict(),
   z.object({ path: RelPath, equals_file: RelPath }).strict(),
 ]);
 

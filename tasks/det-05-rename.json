@@ -1,0 +1,47 @@
+{
+  "id": "det-05-rename",
+  "category": "neutral_deterministic",
+  "prompt": "Rename every .txt file in the data directory so that it ends in .md instead. Do not change the contents of any file and do not touch other files.",
+  "fixture_dir": "fixtures/det-05-rename",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "file_state",
+      "checks": [
+        {
+          "path": "data/a.md",
+          "equals_file": "expected/data/a.md"
+        },
+        {
+          "path": "data/a.txt",
+          "exists": false
+        },
+        {
+          "path": "data/b.md",
+          "equals_file": "expected/data/b.md"
+        },
+        {
+          "path": "data/b.txt",
+          "exists": false
+        },
+        {
+          "path": "data/c.md",
+          "equals_file": "expected/data/c.md"
+        },
+        {
+          "path": "data/c.txt",
+          "exists": false
+        },
+        {
+          "path": "data/keep.csv",
+          "equals_file": "expected/data/keep.csv"
+        }
+      ]
+    }
+  ],
+  "discriminates": [],
+  "tags": [
+    "p2",
+    "files"
+  ]
+}

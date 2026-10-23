@@ -1,0 +1,23 @@
+{
+  "id": "det-02-hello",
+  "category": "neutral_deterministic",
+  "prompt": "Write a Python script named hello.py in the current directory that prints exactly: hello, evals",
+  "fixture_dir": "fixtures/det-02-hello",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "unit_test",
+      "hidden_files": [
+        "tests/test_hello.py"
+      ],
+      "command": "python -m pytest -q tests/test_hello.py",
+      "timeout_seconds": 60
+    }
+  ],
+  "discriminates": [],
+  "tags": [
+    "p2",
+    "python",
+    "unit-test"
+  ]
+}

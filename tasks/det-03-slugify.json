@@ -1,0 +1,25 @@
+{
+  "id": "det-03-slugify",
+  "category": "neutral_deterministic",
+  "prompt": "Implement the function slugify(text) in slug.py; the file already exists with a stub. Rules: (1) the result is lowercase; (2) accented Latin letters become their unaccented base letter (é becomes e, ü becomes u); (3) every run of characters other than a-z and 0-9 becomes a single hyphen; (4) the result has no leading or trailing hyphen; (5) if nothing is left, return the empty string. Keep the function name and do not add a main program.",
+  "fixture_dir": "fixtures/det-03-slugify",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "unit_test",
+      "hidden_files": [
+        "tests/test_slug.py"
+      ],
+      "command": "python -m pytest -q tests/test_slug.py",
+      "timeout_seconds": 60
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "python",
+    "unit-test"
+  ]
+}

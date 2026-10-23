@@ -240,7 +240,7 @@ def test_a_long_tool_output_is_cut_for_the_model(monkeypatch, tmp_path):
     (Path(ctx.workspace_dir) / "big.txt").write_text("z" * 50_000, encoding="utf-8")
     _, events, client = run(monkeypatch, ctx, [reply(calls=[call("read_file", path="big.txt")]), reply("done")])
     out = kinds(events, "tool_result")[0]["output"]
-    assert out.startswith("z" * 100) and len(out) < 10_100 and "output cut" in out
+    assert out.startswith("z" * 100) and out.endswith("z" * 100) and len(out) < 10_100 and "characters omitted" in out
     assert len([m for m in client.kwargs[1]["messages"] if m["role"] == "tool"][0]["content"]) == len(out)
 
 

@@ -1,0 +1,43 @@
+{
+  "id": "mem-06-release",
+  "category": "memory_dependent",
+  "prompt": "Write a file named RELEASE.md in the current directory containing our team's release checklist.",
+  "fixture_dir": null,
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "llm_judge",
+      "rubric": [
+        {
+          "id": "c1",
+          "criterion": "RELEASE.md has a step to bump the version, naming the VERSION file or the version number."
+        },
+        {
+          "id": "c2",
+          "criterion": "RELEASE.md has a step to run the linter with the --strict flag (for example python lint.py --strict)."
+        },
+        {
+          "id": "c3",
+          "criterion": "RELEASE.md has a step to tag the release in git in the form vX.Y.Z (the letter v followed by the version number)."
+        },
+        {
+          "id": "c4",
+          "criterion": "RELEASE.md has a step to post about the release in the #releases channel."
+        }
+      ],
+      "pass_rule": "all",
+      "inputs": [
+        "workspace_file:RELEASE.md"
+      ],
+      "judge_model_id": null
+    }
+  ],
+  "discriminates": [
+    "memory"
+  ],
+  "tags": [
+    "p2",
+    "memory",
+    "judged"
+  ]
+}

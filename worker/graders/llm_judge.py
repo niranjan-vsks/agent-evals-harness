@@ -30,6 +30,8 @@ PROMPT_PATH = Path(__file__).with_name("judge_prompt_v1.txt")
 MAX_INPUT_CHARS = 20_000
 MAX_TOKENS = 2048
 TRANSIENT_BACKOFF_SECONDS = (1, 2, 4)
+REQUEST_TIMEOUT_SECONDS = 60.0
+DEADLINE_SECONDS = 150.0  # all of one judge call's requests and waits; grading shares the trial's wall clock
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
 
 
@@ -77,9 +79,14 @@ def render_inputs(inputs: list[str], final_response: str | None, workspace_dir: 
     return out
 
 
+def _defang(text: str) -> str:
+    """The agent's text cannot close its own <output> block and write sections of the prompt after it."""
+    return re.sub(r"<(/?)output", r"<\1 output", text)
+
+
 def build_prompt(task_prompt: str, rubric: list[dict[str, str]], rendered_inputs: list[tuple[str, str]]) -> str:
     rubric_text = "\n".join(f"{i}. [{c['id']}] {c['criterion']}" for i, c in enumerate(rubric, start=1))
-    inputs_text = "\n\n".join(f'<output name="{name}">\n{text}\n</output>' for name, text in rendered_inputs)
+    inputs_text = "\n\n".join(f'<output name="{name}">\n{_defang(text)}\n</output>' for name, text in rendered_inputs)
     values = {"task_prompt": task_prompt, "rubric": rubric_text, "inputs": inputs_text}
     # One pass, so a placeholder-looking string inside the agent's output is not substituted again.
     return _PLACEHOLDER.sub(lambda m: values[m.group(1)], _template())
@@ -146,14 +153,17 @@ class _Conversation:
         self.json_mode = True
         self.input_tokens = 0
         self.output_tokens = 0
+        self.started = time.monotonic()
 
     def complete(self, messages: list[dict[str, str]]) -> str:
         for attempt in range(len(TRANSIENT_BACKOFF_SECONDS) + 1):
+            if time.monotonic() - self.started > DEADLINE_SECONDS:
+                raise JudgeError(f"the judge model did not answer within {int(DEADLINE_SECONDS)} seconds")
             kwargs: dict[str, Any] = {"model": self.model.slug, "messages": messages, "temperature": 0, "max_tokens": MAX_TOKENS}
             if self.json_mode:
                 kwargs["response_format"] = {"type": "json_object"}
             try:
-                resp = self.client.chat.completions.create(**kwargs)
+                resp = self.client.with_options(timeout=REQUEST_TIMEOUT_SECONDS).chat.completions.create(**kwargs)
             except openai.APIStatusError as e:
                 if e.status_code == 400 and self.json_mode:
                     self.json_mode = False  # the provider or model refuses json_object: ask in plain words
@@ -206,7 +216,8 @@ def grade_llm_judge(
         raise SpecProblem("rubric ids must be unique")
     decide(pass_rule, [])  # rejects an unknown rule before any money is spent
 
-    prompt = build_prompt(task_prompt, rubric, render_inputs(inputs, final_response, workspace_dir))
+    rendered = render_inputs(inputs, final_response, workspace_dir)
+    prompt = build_prompt(task_prompt, rubric, rendered)
     convo = _Conversation(client or make_client(judge_model), judge_model)
     messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
     verdict: Verdict | None = None
@@ -233,11 +244,14 @@ def grade_llm_judge(
         details={
             "criteria": verdict.criteria,
             "pass_rule": pass_rule,
+            "judge_model_slug": judge_model.slug,  # the registry row can change; the result records what was called
             "model_pass": verdict.model_pass,
             "attempts": attempts,
             "response_format": "json_object" if convo.json_mode else "plain",
             "usage": {"input_tokens": convo.input_tokens, "output_tokens": convo.output_tokens},
-            "inputs": list(inputs),
+            # Exactly what the judge was shown. The workspace is deleted after the trial (R-8), and a human
+            # labeller needs the same text to label blind (DESIGN 8.2), so it is kept with the verdict.
+            "judged_inputs": [{"name": name, "text": text} for name, text in rendered],
             "raw_response": reply[:4000],
         },
     )

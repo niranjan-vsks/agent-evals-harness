@@ -1,0 +1,44 @@
+{
+  "id": "jdg-01-summary",
+  "category": "neutral_judged",
+  "prompt": "Summarize the incident described in NOTES.md for a status update. Use at most 5 bullet points and reply with the bullets only.",
+  "fixture_dir": "fixtures/jdg-01-summary",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "llm_judge",
+      "rubric": [
+        {
+          "id": "c1",
+          "criterion": "States the root cause: migration 0042 rebuilt the orders table without recreating the index on orders.customer_id."
+        },
+        {
+          "id": "c2",
+          "criterion": "States the fix: the missing index on orders.customer_id was re-created."
+        },
+        {
+          "id": "c3",
+          "criterion": "Consists of at most 5 bullet points and nothing but bullet points."
+        },
+        {
+          "id": "c4",
+          "criterion": "Contains no fact that is absent from NOTES.md, such as an invented time, number, name or cause."
+        }
+      ],
+      "pass_rule": "all",
+      "inputs": [
+        "final_response",
+        "workspace_file:NOTES.md"
+      ],
+      "judge_model_id": null
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "judged",
+    "summary"
+  ]
+}

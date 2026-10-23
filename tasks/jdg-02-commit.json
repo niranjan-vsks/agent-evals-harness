@@ -1,0 +1,44 @@
+{
+  "id": "jdg-02-commit",
+  "category": "neutral_judged",
+  "prompt": "Write a git commit message for the change in diff.patch in the current directory. Reply with the commit message only.",
+  "fixture_dir": "fixtures/jdg-02-commit",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "llm_judge",
+      "rubric": [
+        {
+          "id": "c1",
+          "criterion": "The first line of the message (the subject) is 72 characters or fewer. Count the characters."
+        },
+        {
+          "id": "c2",
+          "criterion": "The subject is in the imperative mood (for example Fix, Correct, Use), not past tense and not a description."
+        },
+        {
+          "id": "c3",
+          "criterion": "The message says what was wrong with the old code: the start offset of a page ignored that pages are numbered from 1 (an off-by-one error)."
+        },
+        {
+          "id": "c4",
+          "criterion": "The message has a body, after a blank line, that explains why the change was needed and not only what changed."
+        }
+      ],
+      "pass_rule": "all",
+      "inputs": [
+        "final_response",
+        "workspace_file:diff.patch"
+      ],
+      "judge_model_id": null
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "judged",
+    "commit-message"
+  ]
+}

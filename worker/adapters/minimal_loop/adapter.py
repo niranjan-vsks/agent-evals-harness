@@ -104,6 +104,8 @@ class MinimalLoopAdapter:
             problems.append("the minimal loop has no skills; skills.enabled must be false")
         if settings.skills.preload:
             problems.append("skills.preload names skills but the minimal loop has none")
+        if not 0 <= settings.temperature <= 2:
+            problems.append("temperature must be between 0 and 2; providers reject or silently clamp anything else")
         for label, value in (("max_steps", settings.max_steps), ("max_output_tokens", settings.max_output_tokens), ("timeout_seconds", settings.timeout_seconds)):
             if value < 1:
                 problems.append(f"{label} must be at least 1")
@@ -114,6 +116,7 @@ class MinimalLoopAdapter:
     # ------------------------------------------------------------------ prepare / collect_memory
 
     def prepare(self, ctx: TrialContext) -> None:
+        # Outside the workspace, but on the same filesystem as a shell the agent runs (no sandbox, DESIGN 13).
         memory_dir = Path(ctx.trial_dir) / "memory"
         events: list[dict[str, Any]] = []
         if ctx.settings.memory.mode == "seeded":
@@ -136,10 +139,12 @@ class MinimalLoopAdapter:
 
     def run(self, ctx: TrialContext) -> HarnessRunResult:
         writer = TraceWriter(ctx.events_path)
+        spawned: list[int] = []
         try:
-            return self._loop(ctx, writer)
+            return self._loop(ctx, writer, spawned)
         finally:
             writer.close()
+            _kill_leftovers(spawned)
 
     def _system_prompt(self, ctx: TrialContext) -> str:
         if ctx.settings.memory.mode != "seeded":
@@ -147,7 +152,7 @@ class MinimalLoopAdapter:
         seed = ctx.memory_seed or {}
         return f"{SYSTEM_PROMPT}\n\n## Memory\n{seed.get('MEMORY.md', '')}\n## User\n{seed.get('USER.md', '')}"
 
-    def _loop(self, ctx: TrialContext, w: TraceWriter) -> HarnessRunResult:
+    def _loop(self, ctx: TrialContext, w: TraceWriter, spawned: list[int]) -> HarnessRunResult:
         s = ctx.settings
         client = make_client(ctx.model)
         tools = [_tool_schema(name) for t in s.tools for name in _TOOLS_FOR[t]]
@@ -161,8 +166,9 @@ class MinimalLoopAdapter:
         steps = 0
         malformed_run = 0
         last_text: str | None = None
+        notes: list[str] = []
 
-        def result(reason: str, final: str | None, notes: tuple[str, ...] = ()) -> HarnessRunResult:
+        def result(reason: str, final: str | None, extra_notes: tuple[str, ...] = ()) -> HarnessRunResult:
             return HarnessRunResult(
                 final_response=final,
                 exit_reason=reason,  # type: ignore[arg-type]
@@ -171,7 +177,7 @@ class MinimalLoopAdapter:
                 harness_reported_cost_usd=None,
                 system_prompt=system,
                 skills_invoked=(),
-                notes=notes,
+                notes=(*extra_notes, *notes),
             )
 
         for step in range(1, s.max_steps + 1):
@@ -194,8 +200,10 @@ class MinimalLoopAdapter:
                 usage["reasoning"] = (usage["reasoning"] or 0) + int(reasoning)
 
             msg = resp.choices[0].message
-            content = msg.content if isinstance(msg.content, str) else None
+            content = _clean(msg.content) if isinstance(msg.content, str) else None
             calls = list(msg.tool_calls or [])
+            if getattr(resp.choices[0], "finish_reason", None) == "length" and not calls:
+                notes.append(f"step {step}: the reply was cut off at max_output_tokens ({s.max_output_tokens}); it is recorded as completed")
             if content:
                 last_text = content
                 w.emit("message", role="assistant", content=content, step=step)
@@ -205,13 +213,13 @@ class MinimalLoopAdapter:
             history_calls: list[dict[str, Any]] = []
             tool_messages: list[dict[str, Any]] = []
             for call in calls:
-                name, raw_args = call.function.name, call.function.arguments or ""
+                name, raw_args = _clean(call.function.name or ""), _clean(call.function.arguments or "")
                 call_id = call.id or f"call_{step}_{len(history_calls)}"
                 started = time.monotonic()
                 try:
                     args = self._parse_args(name, raw_args, offered)
                     w.emit("tool_call", call_id=call_id, step=step, tool=_PLATFORM_TOOL[name], harness_tool=name, args=args)
-                    output, is_error = self._execute(name, args, ctx.workspace_dir)
+                    output, is_error = self._execute(name, args, ctx.workspace_dir, spawned)
                     malformed_run = 0
                     history_args = raw_args
                 except _Malformed as e:
@@ -292,25 +300,50 @@ class MinimalLoopAdapter:
                 raise _Malformed(f"the argument {param!r} is required and must be a string")
         return args
 
-    def _execute(self, name: str, args: dict[str, str], workspace: str) -> tuple[str, bool]:
+    def _execute(self, name: str, args: dict[str, str], workspace: str, spawned: list[int]) -> tuple[str, bool]:
         try:
             if name == "shell":
-                output, is_error = _run_shell(args["cmd"], workspace)
+                output, is_error = _run_shell(args["cmd"], workspace, spawned)
             else:
                 output, is_error = _run_file_tool(name, args, Path(workspace))
-        except (OSError, subprocess.SubprocessError) as e:  # the tool could not run: a result, not a crash (H-6)
+        except (OSError, ValueError, subprocess.SubprocessError) as e:  # the tool could not run (a NUL in a path, say): a result, not a crash (H-6)
             output, is_error = f"error: {type(e).__name__}: {e}", True
-        if len(output) > MAX_TOOL_OUTPUT_CHARS:
-            output = output[:MAX_TOOL_OUTPUT_CHARS] + f"\n[output cut at {MAX_TOOL_OUTPUT_CHARS} characters]"
-        return output, is_error
+        return _clean(output), is_error
 
 
-def _run_shell(cmd: str, cwd: str) -> tuple[str, bool]:
+def _cut(text: str) -> str:
+    """Keeps the head and the tail of long output (a traceback or a test summary is at the end)."""
+    if len(text) <= MAX_TOOL_OUTPUT_CHARS:
+        return text
+    half = MAX_TOOL_OUTPUT_CHARS // 2
+    return f"{text[:half]}\n[{len(text) - 2 * half} characters omitted]\n{text[-half:]}"
+
+
+def _shell_env() -> dict[str, str]:
+    """The child's environment without the provider keys: the agent has no use for them (M-4)."""
+    return {k: v for k, v in os.environ.items() if not k.upper().endswith(("_API_KEY", "_TOKEN", "_SECRET"))}
+
+
+def _kill_leftovers(pids: list[int]) -> None:
+    """A command the agent backgrounded (`&`, nohup) outlives its shell. Kill each shell's process group at the end of the trial."""
+    for pid in pids:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+            continue
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _run_shell(cmd: str, cwd: str, spawned: list[int] | None = None) -> tuple[str, bool]:
     posix = os.name != "nt"
     proc = subprocess.Popen(
-        cmd, shell=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        start_new_session=posix,
+        cmd, shell=True, cwd=cwd, env=_shell_env(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", start_new_session=posix,
     )
+    if spawned is not None:
+        spawned.append(proc.pid)
     try:
         out, _ = proc.communicate(timeout=SHELL_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
@@ -322,10 +355,15 @@ def _run_shell(cmd: str, cwd: str) -> tuple[str, bool]:
         else:
             subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
         out, _ = proc.communicate()
-        return f"{out}\n[command timed out after {SHELL_TIMEOUT_SECONDS} seconds and was killed]", True
+        return f"{_cut(out)}\n[command timed out after {SHELL_TIMEOUT_SECONDS} seconds and was killed]", True
     if proc.returncode != 0:
-        return f"{out}\n[exit code {proc.returncode}]", True
-    return out, False
+        return f"{_cut(out)}\n[exit code {proc.returncode}]", True
+    return _cut(out), False
+
+
+def _clean(text: str) -> str:
+    """Model text can hold lone surrogates, which neither the trace file nor a JSON request body can carry."""
+    return text.encode("utf-8", "replace").decode("utf-8")
 
 
 def _run_file_tool(name: str, args: dict[str, str], workspace: Path) -> tuple[str, bool]:
@@ -335,7 +373,8 @@ def _run_file_tool(name: str, args: dict[str, str], workspace: Path) -> tuple[st
         return f"error: {args['path']!r} is outside the workspace", True
     try:
         if name == "read_file":
-            return target.read_text(encoding="utf-8", errors="replace"), False
+            with open(target, encoding="utf-8", errors="replace") as f:
+                return _cut(f.read(4 * MAX_TOOL_OUTPUT_CHARS)), False
         if name == "write_file":
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(args["content"], encoding="utf-8", newline="")

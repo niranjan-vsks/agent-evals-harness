@@ -1,0 +1,26 @@
+{
+  "id": "det-08-revenue",
+  "category": "neutral_deterministic",
+  "prompt": "orders.json contains a list of orders. What is the total amount of the orders whose status is completed? Give the number with exactly 2 decimal places, digits and a decimal point only, with no currency symbol and no thousands separator (for example 1234.50). Finish your reply with a line of the form FINAL: <total>.",
+  "fixture_dir": "fixtures/det-08-revenue",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "20300.26",
+      "expected_regex": null,
+      "normalize": [
+        "trim"
+      ],
+      "extract": "final_line"
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "generated",
+    "json"
+  ]
+}

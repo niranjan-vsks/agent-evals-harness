@@ -1,0 +1,36 @@
+{
+  "id": "dis-01-json",
+  "category": "memory_distractor",
+  "prompt": "Create a file named service.config in the current directory. It must contain a JSON object with log_level set to \"INFO\" and port set to 9000.",
+  "fixture_dir": null,
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "file_state",
+      "checks": [
+        {
+          "path": "service.config",
+          "exists": true
+        },
+        {
+          "path": "service.config",
+          "json_path": "$.log_level",
+          "equals": "INFO"
+        },
+        {
+          "path": "service.config",
+          "json_path": "$.port",
+          "equals": 9000
+        }
+      ]
+    }
+  ],
+  "discriminates": [
+    "memory"
+  ],
+  "tags": [
+    "p2",
+    "distractor",
+    "file"
+  ]
+}

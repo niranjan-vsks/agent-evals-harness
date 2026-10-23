@@ -28,8 +28,10 @@ services:
       TASKS_DIR: /tasks
       MAX_CONCURRENT_TRIALS: ${MAX_CONCURRENT_TRIALS:-2}
       JUDGE_MODEL_ID: ${JUDGE_MODEL_ID:-model-a}
+      EXPERIMENTS_DIR: /experiments
     volumes:
       - ./tasks:/tasks:ro
+      - ./experiments:/experiments
     ports:
       - "3000:3000"
     healthcheck:
@@ -50,7 +52,7 @@ services:
       - ./tasks:/tasks:ro
       - workdata:/work
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # the worker has no authentication; only the api (on the compose network) and this host may call it
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)"]
       interval: 5s

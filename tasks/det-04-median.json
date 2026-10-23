@@ -1,0 +1,26 @@
+{
+  "id": "det-04-median",
+  "category": "neutral_deterministic",
+  "prompt": "The function median in stats.py returns the wrong answer for some inputs. Fix it so it returns the correct median of a non-empty list of numbers. Do not change the other functions.",
+  "fixture_dir": "fixtures/det-04-median",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "unit_test",
+      "hidden_files": [
+        "tests/test_stats.py"
+      ],
+      "command": "python -m pytest -q tests/test_stats.py",
+      "timeout_seconds": 60
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "python",
+    "unit-test",
+    "bugfix"
+  ]
+}

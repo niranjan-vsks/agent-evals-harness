@@ -1,0 +1,40 @@
+{
+  "id": "jdg-04-flaky",
+  "category": "neutral_judged",
+  "prompt": "The test in test_flaky.py fails on some runs and passes on others. Explain in at most 4 sentences why, and say how to fix it. Do not modify any files. Reply with the explanation only.",
+  "fixture_dir": "fixtures/jdg-04-flaky",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "llm_judge",
+      "rubric": [
+        {
+          "id": "c1",
+          "criterion": "Identifies that the test depends on random.sample, which is not seeded, so the chosen winners differ from run to run."
+        },
+        {
+          "id": "c2",
+          "criterion": "Proposes a fix that removes the nondeterminism: seeding the random generator, fixing the sample (for example with a fixture or a mock), or asserting something that holds for every sample."
+        },
+        {
+          "id": "c3",
+          "criterion": "Does not blame an unrelated cause such as a race condition, timing, network or file access."
+        }
+      ],
+      "pass_rule": "all",
+      "inputs": [
+        "final_response",
+        "workspace_file:test_flaky.py"
+      ],
+      "judge_model_id": null
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "judged",
+    "explanation"
+  ]
+}

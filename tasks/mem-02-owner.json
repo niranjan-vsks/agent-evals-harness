@@ -1,0 +1,26 @@
+{
+  "id": "mem-02-owner",
+  "category": "memory_dependent",
+  "prompt": "Who owns the ingest service on our team? Finish your reply with a line of the form FINAL: <name>.",
+  "fixture_dir": null,
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "Marco",
+      "expected_regex": null,
+      "normalize": [
+        "trim",
+        "lowercase"
+      ],
+      "extract": "final_line"
+    }
+  ],
+  "discriminates": [
+    "memory"
+  ],
+  "tags": [
+    "p2",
+    "memory"
+  ]
+}

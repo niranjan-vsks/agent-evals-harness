@@ -1,0 +1,26 @@
+{
+  "id": "det-07-sort",
+  "category": "neutral_deterministic",
+  "prompt": "Sort the numbers in numbers.txt in ascending numeric order and write the result to sorted.txt, one number per line, with a newline after the last number.",
+  "fixture_dir": "fixtures/det-07-sort",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "file_state",
+      "checks": [
+        {
+          "path": "sorted.txt",
+          "equals_file": "expected/sorted.txt"
+        }
+      ]
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "generated",
+    "files"
+  ]
+}

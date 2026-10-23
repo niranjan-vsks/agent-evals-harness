@@ -734,7 +734,11 @@ Where the platform's conclusions should not be trusted, and why.
 6. **No sandbox.** The agent's shell runs in the worker container with the workspace as
    cwd. Host side effects are limited to the container, not prevented. A task that asks
    for network access would succeed or fail based on the container's network, which the
-   platform does not control or record.
+   platform does not control or record. The grader-only files (hidden tests, expected files, and
+   the task JSON that holds each `exact_match` answer) are mounted read-only at `/tasks` in that
+   same container, so an agent that went looking could read them. No prompt points there and the
+   runner keeps them out of the workspace (R-5, R-7), but the only protection against a search of
+   the filesystem is that the trace would show it: a `tool_call` whose arguments name `/tasks`.
 7. **Single run, single day.** The experiment is 1 run on 1 day against 1 provider
    backend. Reproduction (section 6.2) re-runs the inputs; it cannot re-run the backend.
 8. **Pre-registration is procedural, not cryptographic.** D-10 stops edits through the

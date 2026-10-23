@@ -26,6 +26,10 @@ class TraceWriter:
     def emit(self, kind: str, **fields: Any) -> None:
         event = {"kind": kind, "t_ms": int((time.monotonic() - self._t0) * 1000), **fields}
         line = json.dumps(event, ensure_ascii=False)
+        try:
+            line.encode("utf-8")
+        except UnicodeEncodeError:  # a lone surrogate in model text must not kill the trial
+            line = line.encode("utf-8", "replace").decode("utf-8")
         with self._lock:
             self._f.write(line + "\n")
             self._f.flush()

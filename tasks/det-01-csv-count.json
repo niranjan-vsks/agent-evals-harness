@@ -1,0 +1,26 @@
+{
+  "id": "det-01-csv-count",
+  "category": "neutral_deterministic",
+  "prompt": "How many rows in data.csv have the status failed? Count data rows only, not the header line. Finish your reply with a line of the form FINAL: <number>.",
+  "fixture_dir": "fixtures/det-01-csv-count",
+  "memory_fixture": null,
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "37",
+      "expected_regex": null,
+      "normalize": [
+        "trim"
+      ],
+      "extract": "final_line"
+    }
+  ],
+  "discriminates": [
+    "model"
+  ],
+  "tags": [
+    "p2",
+    "generated",
+    "csv"
+  ]
+}

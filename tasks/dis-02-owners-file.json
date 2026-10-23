@@ -1,0 +1,26 @@
+{
+  "id": "dis-02-owners-file",
+  "category": "memory_distractor",
+  "prompt": "According to the file OWNERS.txt in the current directory, who owns the billing service? Finish your reply with a line of the form FINAL: <name>.",
+  "fixture_dir": "fixtures/dis-02-owners-file",
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "Sam",
+      "expected_regex": null,
+      "normalize": [
+        "trim",
+        "lowercase"
+      ],
+      "extract": "final_line"
+    }
+  ],
+  "discriminates": [
+    "memory"
+  ],
+  "tags": [
+    "p2",
+    "distractor"
+  ]
+}

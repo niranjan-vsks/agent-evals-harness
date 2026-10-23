@@ -19,6 +19,7 @@ from worker.graders.exact_match import SpecProblem
 
 HIDDEN_DIR = "_hidden"
 _JSON_PATH_TOKEN = re.compile(r"\.([A-Za-z_][A-Za-z0-9_]*)|\[(\d+)\]")
+_JSON_PATH_FULL = re.compile(r"\$(?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*")
 
 
 def _resolve(root: Path, rel: str) -> Path | None:
@@ -32,6 +33,8 @@ def json_path_get(doc: Any, path: str) -> tuple[bool, Any]:
     """Minimal JSONPath: $ then .key or [index]. Returns (found, value)."""
     if not path.startswith("$"):
         raise SpecProblem(f"json_path must start with $: {path!r}")
+    if not _JSON_PATH_FULL.fullmatch(path):  # before walking, so a missing key cannot hide an unsupported suffix
+        raise SpecProblem(f"unsupported json_path syntax: {path!r}")
     rest = path[1:]
     cur = doc
     pos = 0

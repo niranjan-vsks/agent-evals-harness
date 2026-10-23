@@ -1,0 +1,41 @@
+{
+  "id": "mem-03-config",
+  "category": "memory_dependent",
+  "prompt": "Create a file named config.json in the current directory with our team's standard configuration for new services.",
+  "fixture_dir": null,
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "file_state",
+      "checks": [
+        {
+          "path": "config.json",
+          "exists": true
+        },
+        {
+          "path": "config.json",
+          "json_path": "$.log_level",
+          "equals": "WARN"
+        },
+        {
+          "path": "config.json",
+          "json_path": "$.port",
+          "equals": 8443
+        },
+        {
+          "path": "config.json",
+          "json_path": "$.metrics",
+          "equals": true
+        }
+      ]
+    }
+  ],
+  "discriminates": [
+    "memory"
+  ],
+  "tags": [
+    "p2",
+    "memory",
+    "file"
+  ]
+}

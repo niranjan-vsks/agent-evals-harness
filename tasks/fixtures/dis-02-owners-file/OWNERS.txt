@@ -1,0 +1,5 @@
+# Service owners, updated 2026-10-01
+ingest: Marco
+billing: Sam
+auth: Lena
+search: Tomas

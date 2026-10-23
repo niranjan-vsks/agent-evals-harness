@@ -1,0 +1,37 @@
+{
+  "id": "mem-05-lint",
+  "category": "memory_dependent",
+  "prompt": "Run the project's lint the way we run it on this team, then report whether it passes. Do not modify any files. Finish your reply with a line of the form FINAL: PASS or FINAL: FAIL.",
+  "fixture_dir": "fixtures/mem-05-lint",
+  "memory_fixture": "team-memory-v1",
+  "graders": [
+    {
+      "type": "exact_match",
+      "expected": "FAIL",
+      "expected_regex": null,
+      "normalize": [
+        "trim",
+        "lowercase"
+      ],
+      "extract": "final_line"
+    },
+    {
+      "type": "trace_check",
+      "assertions": [
+        {
+          "kind": "tool_called",
+          "tool": "shell",
+          "args_regex": "lint\\.py\\s+--strict"
+        }
+      ]
+    }
+  ],
+  "discriminates": [
+    "memory"
+  ],
+  "tags": [
+    "p2",
+    "memory",
+    "mechanism"
+  ]
+}
