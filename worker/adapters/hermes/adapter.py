@@ -13,6 +13,7 @@ the result mapping.
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -44,6 +45,17 @@ _PLATFORM_TOOL = {
 }
 _TOOLSET_FOR = {"shell": "terminal", "files": "file"}  # toolsets.py:102, :122
 _ALWAYS_DISABLED = ("clarify", "web", "browser")        # toolsets.py:154, :76, :112
+# agent/error_classifier.py FailoverReason -> the HTTP status it stands for, used only when the hook has no
+# status_code. A reason that is not an HTTP error (a timeout, an SSL failure, a context overflow Hermes
+# compresses itself) is absent: the failure has no status and the trial is scored.
+_HINT_STATUS = re.compile(r"^Invalid API response after \d+ retries: (?:upstream [a-z ]*\((?:Cloudflare |code )?([45]\d\d)[,)]|rate limited by upstream provider \(([45]\d\d)\))")
+_STATUS_FOR_REASON = {
+    "rate_limit": 429, "upstream_rate_limit": 429,
+    "server_error": 502, "overloaded": 503,
+    "auth": 401, "auth_permanent": 401, "billing": 402, "upstream_blocked": 403, "provider_policy_blocked": 403,
+    "model_entitlement": 403, "model_not_found": 404, "payload_too_large": 413,
+    "format_error": 400, "role_alternation": 400,
+}  # content_policy_blocked is absent on purpose: Hermes raises it for an HTTP 200 reply with finish_reason content_filter, a refusal and not an HTTP error
 
 
 def _hermes_version() -> str:
@@ -139,7 +151,12 @@ class HermesAdapter:
         if settings.timeout_seconds < 1:
             problems.append("timeout_seconds must be at least 1")
         for key in sorted(settings.harness_options):
-            problems.append(f"harness_options.{key} is not supported by hermes")
+            if key == "providers_ignored":
+                value = settings.harness_options[key]
+                if not isinstance(value, list) or not value or not all(isinstance(v, str) and v and v == v.strip() for v in value):
+                    problems.append("harness_options.providers_ignored must be a non-empty list of provider names (OpenRouter routing)")
+            else:
+                problems.append(f"harness_options.{key} is not supported by hermes")
         return problems
 
     @staticmethod
@@ -238,6 +255,8 @@ class HermesAdapter:
             run_budget_seconds=ctx.settings.timeout_seconds,
             session_id=f"{ctx.trial_id}-{ctx.attempt}",
             clarify_callback=lambda *a, **k: "pick defaults",
+            # OpenRouter routing: providers the request must not be sent to (provider.ignore).
+            providers_ignored=list(ctx.settings.harness_options["providers_ignored"]) if ctx.settings.harness_options.get("providers_ignored") else None,
         )
         try:
             try:
@@ -261,9 +280,13 @@ class HermesAdapter:
 
     def _map_result(self, result: dict[str, Any], rec: "_Recorder", notes: list[str], writer: TraceWriter, ctx: TrialContext) -> HarnessRunResult:
         reason = str(result.get("turn_exit_reason") or "")
+        # Hermes marks a failed result `partial` when it delivered some text before the provider gave out
+        # (agent/turn_recovery.py `_with_delivered_partial`). If an HTTP error ended that run it is an
+        # agent_error with a status, not an invalid tool call; exhausted context compression keeps its old reading.
+        http_failed = bool(result.get("failed")) and result.get("failure_reason") != "context_overflow" and rec.last_error_status(str(result.get("error") or ""))[0] is not None
         if reason.startswith("max_iterations_reached") or reason == "budget_exhausted":
             exit_reason = "max_steps"
-        elif result.get("partial"):
+        elif result.get("partial") and not http_failed:
             exit_reason = "invalid_tool_call"
         elif result.get("completed"):
             exit_reason = "completed"
@@ -271,7 +294,13 @@ class HermesAdapter:
             exit_reason = "agent_error"
             notes.append(f"hermes turn_exit_reason: {reason}")
             error = result.get("error") or reason or "hermes ended the turn without completing"
-            writer.emit("error", stage="run", message=str(error), retryable=rec.last_error_retryable())
+            status, source = rec.last_error_status(str(error))
+            # The final error event carries the HTTP status the failure amounts to; the runner turns a 4xx or
+            # 5xx into an errored trial and leaves a failure with no status scored (DESIGN 11 entry 17).
+            writer.emit(
+                "error", stage="run", message=str(error), retryable=status == 429 or (status or 0) >= 500,
+                http_status=status, http_status_source=source,
+            )
         return self._result(self._verbatim(result.get("final_response"), rec), exit_reason, rec, result, notes, ctx)
 
     @staticmethod
@@ -339,6 +368,7 @@ class _Recorder:
         self.last_content: str | None = None  # the model's last reply exactly as received
         self._open: tuple[int, float] | None = None  # (step, started) of a request with no outcome yet
         self._last_error_status: int | None = None
+        self._last_error_reason: str | None = None
         self._last_error_seen = False
         self._closed = False
 
@@ -397,6 +427,7 @@ class _Recorder:
         n_out = int(usage.get("output_tokens") or 0)
         with self._lock:
             self._open = None
+            self._last_error_seen = False  # a reply arrived: an earlier failure was recovered from
             self.ok_calls += 1
             self.input_tokens += n_in
             self.output_tokens += n_out
@@ -412,11 +443,12 @@ class _Recorder:
 
     def api_request_error(self, api_call_count: int = 0, api_duration: float = 0.0, status_code: int | None = None,
                           retry_count: int | None = None, max_retries: int | None = None, retryable: bool | None = None,
-                          **_: Any) -> None:
+                          reason: str | None = None, **_: Any) -> None:
         will_retry = bool(retryable) and retry_count is not None and max_retries is not None and retry_count + 1 < max_retries
         with self._lock:
             self._open = None
             self._last_error_status = status_code
+            self._last_error_reason = reason
             self._last_error_seen = True
         self._emit(
             "api_call", step=api_call_count, model=self._ctx.model.slug, input_tokens=0, output_tokens=0,
@@ -437,13 +469,30 @@ class _Recorder:
         if opened is not None:
             self._emit_unresolved(opened, "error")
 
-    def last_error_retryable(self) -> bool:
-        """A provider-side failure (429, 5xx, no HTTP status such as a dropped connection) is infra."""
+    def last_error_status(self, final_message: str = "") -> tuple[int | None, str | None]:
+        """(HTTP status, where it came from) of the failure that ended the run, or (None, None).
+
+        1. The hook's own status_code, when there is one.
+        2. OpenRouter reports an upstream failure that happens after it answered 200 (a streamed reply, a
+           provider that went away) as an error object in the body, and Hermes then has no status_code.
+           Its own classification of the error (`reason`) names the class of HTTP error, and that is mapped
+           to a representative status.
+        3. For an invalid or empty response Hermes has only text: its hint for the provider's error code,
+           "upstream server error (502, 2s)" and the like (agent/turn_recovery.py `_failure_hint_for`),
+           which ends up in the final error message.
+        Otherwise there is no status, and the runner scores the trial."""
         with self._lock:
             if not self._last_error_seen:
-                return False
-            s = self._last_error_status
-        return s is None or s == 429 or s >= 500
+                return None, None
+            status, reason = self._last_error_status, self._last_error_reason
+        if isinstance(status, int):
+            return status, "http"
+        if reason in _STATUS_FOR_REASON:
+            return _STATUS_FOR_REASON[reason], f"hermes_reason:{reason}"
+        m = _HINT_STATUS.match(final_message) if reason == "invalid_response" else None
+        if m:
+            return int(m.group(1) or m.group(2)), "hermes_hint"
+        return None, None
 
     # -- tools ------------------------------------------------------------------------
 

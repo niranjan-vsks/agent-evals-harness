@@ -1,0 +1,105 @@
+{
+  "fetched_at": "2026-10-24T13:42:38.473Z",
+  "source": "https://openrouter.ai/api/v1/models/openai/gpt-oss-20b/endpoints",
+  "endpoints": [
+    {
+      "provider": "Darkbloom",
+      "tag": "darkbloom/fp8",
+      "input_usd_per_token": "0.000000018",
+      "output_usd_per_token": "0.00000009",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    },
+    {
+      "provider": "AkashML",
+      "tag": "akashml/fp4",
+      "input_usd_per_token": "0.00000002",
+      "output_usd_per_token": "0.0000001",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    },
+    {
+      "provider": "DekaLLM",
+      "tag": "dekallm/bf16",
+      "input_usd_per_token": "0.000000029",
+      "output_usd_per_token": "0.00000014",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    },
+    {
+      "provider": "CoreWeave",
+      "tag": "coreweave/fp4",
+      "input_usd_per_token": "0.00000003",
+      "output_usd_per_token": "0.00000013",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    },
+    {
+      "provider": "DeepInfra",
+      "tag": "deepinfra/bf16",
+      "input_usd_per_token": "0.00000003",
+      "output_usd_per_token": "0.00000014",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 96.66666666666667
+    },
+    {
+      "provider": "Parasail",
+      "tag": "parasail/fp4",
+      "input_usd_per_token": "0.00000003",
+      "output_usd_per_token": "0.00000015",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    },
+    {
+      "provider": "SiliconFlow",
+      "tag": "siliconflow/fp8",
+      "input_usd_per_token": "0.00000004",
+      "output_usd_per_token": "0.00000018",
+      "context_length": 131072,
+      "tools": false,
+      "uptime_30m": 86.20689655172413
+    },
+    {
+      "provider": "Amazon Bedrock",
+      "tag": "amazon-bedrock/eu-west-1",
+      "input_usd_per_token": "0.00000007",
+      "output_usd_per_token": "0.00000015",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": null
+    },
+    {
+      "provider": "Amazon Bedrock",
+      "tag": "amazon-bedrock",
+      "input_usd_per_token": "0.00000007",
+      "output_usd_per_token": "0.00000015",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    },
+    {
+      "provider": "Google",
+      "tag": "google-vertex/us-central1",
+      "input_usd_per_token": "0.00000007",
+      "output_usd_per_token": "0.00000025",
+      "context_length": 131072,
+      "tools": false,
+      "uptime_30m": 0
+    },
+    {
+      "provider": "Groq",
+      "tag": "groq",
+      "input_usd_per_token": "0.000000075",
+      "output_usd_per_token": "0.0000003",
+      "context_length": 131072,
+      "tools": true,
+      "uptime_30m": 100
+    }
+  ]
+}

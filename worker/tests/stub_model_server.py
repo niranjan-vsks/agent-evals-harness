@@ -17,6 +17,11 @@ Scenarios
   rate_limit_twice    HTTP 429 on the first 2 requests, then "plain"
   always_429          HTTP 429 on every request
   server_error        HTTP 500 on every request
+  http_<code>         that HTTP status on every request (http_400, http_401, http_404, http_502, ...)
+  midstream_502       what OpenRouter does when an upstream provider dies after it has answered 200: HTTP 200
+                      and an error object {"error": {"code": 502, ...}} (an SSE chunk when streaming, the body
+                      otherwise), so the client sees no HTTP error status
+  drop_connection     closes the connection without answering
   stall_on_3          steps 0 and 1 call the shell tool, step 2 never answers
   loop_tools          every step calls the shell tool (drives the max_steps cap)
   padded              one answer with leading and trailing whitespace (H-11: kept verbatim)
@@ -101,6 +106,12 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         return {"http": 429}
     if scenario == "server_error":
         return {"http": 500}
+    if scenario.startswith("http_") and scenario[5:].isdigit():
+        return {"http": int(scenario[5:])}
+    if scenario == "midstream_502":
+        return {"midstream": 502}
+    if scenario == "drop_connection":
+        return {"drop": True}
     if scenario == "rate_limit_twice" and n_request < 2:
         return {"http": 429}
     if scenario.startswith("judge_"):
@@ -235,7 +246,29 @@ def _make_handler(state: StubState):
             if plan.get("stall"):
                 state.stop.wait(timeout=3600)
                 return
+            if plan.get("drop"):
+                self.close_connection = True
+                return
+            if "midstream" in plan:
+                self._midstream_error(body, plan["midstream"])
+                return
             self._answer(body, plan)
+
+        def _midstream_error(self, body: dict[str, Any], code: int) -> None:
+            error = {"error": {"code": code, "message": "Upstream error from Stub: inference generation failed", "metadata": {"error_type": "provider_unavailable"}}}
+            if not body.get("stream"):
+                self._json(200, error)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            for obj in ({"id": "chatcmpl-stub", "object": "chat.completion.chunk", "model": body.get("model", "stub"), "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}]}, error):
+                data = ("data: " + json.dumps(obj) + "\n\n").encode()
+                self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+                self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
 
         def _answer(self, body: dict[str, Any], plan: dict[str, Any]) -> None:
             content: str = plan["content"]

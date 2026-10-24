@@ -128,6 +128,25 @@ class TestJudgedTasksSeparateGoodFromPlausiblyBad:
         out = verdict("jdg-02-commit", final=msg, tmp_path=tmp_path)
         assert out.passed, out.details["criteria"]
 
+    def test_jdg_02_a_subject_over_72_characters_fails_that_criterion(self, tmp_path):
+        subject = "Correct the pagination offset so that page 1 no longer skips the first ten items"
+        assert len(subject) > 72
+        msg = f"{subject}\n\nPages are numbered from 1 but the start index used page * page_size, an off-by-one error that skipped a page."
+        out = verdict("jdg-02-commit", final=msg, tmp_path=tmp_path)
+        assert not out.passed and met(out)["c1"] is False
+
+    def test_jdg_02_a_subject_of_exactly_the_limit_is_accepted(self, tmp_path):
+        subject = "Fix the pagination off-by-one so page 1 returns the first items now"  # 69
+        assert len(subject) <= 72
+        msg = f"{subject}\n\nPages are numbered from 1, but the start offset was page * page_size, an off-by-one error that skipped the first page."
+        out = verdict("jdg-02-commit", final=msg, tmp_path=tmp_path)
+        assert met(out)["c1"] is True
+
+    def test_jdg_01_exactly_5_bullets_is_accepted(self, tmp_path):
+        assert GOOD_SUMMARY.count("\n- ") + 1 == 5
+        out = verdict("jdg-01-summary", final=GOOD_SUMMARY, tmp_path=tmp_path)
+        assert met(out)["c3"] is True
+
     def test_jdg_02_a_vague_past_tense_message_fails(self, tmp_path):
         out = verdict("jdg-02-commit", final="Fixed some stuff in the pagination code", tmp_path=tmp_path)
         assert not out.passed

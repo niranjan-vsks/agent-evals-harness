@@ -40,8 +40,17 @@ export function normalizeSettings(input: ConfigBodyData['settings'], fixtureHash
     max_steps: input.max_steps,
     max_output_tokens: input.max_output_tokens,
     timeout_seconds: input.timeout_seconds,
-    harness_options: input.harness_options,
+    harness_options: normalizeHarnessOptions(input.harness_options),
   };
+}
+
+/** providers_ignored is a set of provider names: the same list in another order, or with a repeat, is the same config. */
+function normalizeHarnessOptions(options: Record<string, unknown>): Record<string, unknown> {
+  const ignored = options.providers_ignored;
+  if (Array.isArray(ignored) && ignored.every((v) => typeof v === 'string')) {
+    return { ...options, providers_ignored: [...new Set(ignored as string[])].sort() };
+  }
+  return options;
 }
 
 /** DATA_MODEL 2.5: sha256(canonical JSON of {harness_id, harness_version, model_slug, settings}). */

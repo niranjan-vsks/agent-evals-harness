@@ -49,8 +49,9 @@ describe('read endpoints and the boot-time seeds', () => {
   it('GET /harnesses lists what the worker manifest reported at boot', async () => {
     const res = await http.get('/harnesses');
     expect(res.status).toBe(200);
-    expect(res.body[0]).toMatchObject({ id: 'hermes', version: HERMES_VERSION });
-    expect(res.body[0].capabilities.memory_modes).toEqual(['off', 'seeded']);
+    const hermes = res.body.find((h: { id: string }) => h.id === 'hermes'); // other specs add harness rows of their own
+    expect(hermes).toMatchObject({ id: 'hermes', version: HERMES_VERSION });
+    expect(hermes.capabilities.memory_modes).toEqual(['off', 'seeded']);
   });
 
   it('GET /tasks lists the current version of each synced task', async () => {

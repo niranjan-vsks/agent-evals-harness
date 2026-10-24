@@ -344,3 +344,49 @@ def test_m4_the_key_never_appears_in_a_spec_a_result_or_a_log(adapter_id, world)
         assert SENTINEL_KEY not in (run.trial_dir / "out" / log).read_text(encoding="utf-8", errors="replace")
     # The key did reach the provider: the harness sent it, only the platform never stores it.
     assert run.chat_requests[0]["headers"]["Authorization"] == f"Bearer {SENTINEL_KEY}"
+
+
+# ------------------------------------------------------------------ DESIGN 6.3 / 11 entry 17: provider failures
+
+
+def _last_error(run):
+    errors = run.kinds("error")
+    assert errors, "the adapter left no error event"
+    return errors[-1]
+
+
+@pytest.mark.parametrize("scenario,status", [("http_400", 400), ("http_401", 401), ("http_404", 404)])
+def test_provider_4xx_is_an_errored_config_invalid_trial_never_a_scored_failure(adapter_id, world, scenario, status):
+    """The adapter returns agent_error and ends with an `error` event that carries the HTTP status; the
+    runner reads it. No retry is worth making, and a trial that never got an answer is not a failure of the agent."""
+    run = world.run(adapter_id, scenario, timeout=120)
+    r = run.result
+    assert r["status"] == "errored" and r["error_class"] == "config_invalid", r.get("error_message")
+    assert r["passed"] is None and r["grader_results"] == []
+    assert _last_error(run)["http_status"] == status
+
+
+def test_provider_5xx_is_an_errored_provider_error_trial(adapter_id, world):
+    run = world.run(adapter_id, "server_error", timeout=150)
+    r = run.result
+    assert r["status"] == "errored" and r["error_class"] == "provider_error", r.get("error_message")
+    assert r["passed"] is None
+    assert _last_error(run)["http_status"] == 500
+
+
+def test_an_upstream_failure_behind_an_http_200_is_still_provider_error(adapter_id, world):
+    """OpenRouter answers 200 and puts {"error": {"code": 502}} in the stream or the body when the provider
+    dies after it has started (the Darkbloom failures of P2). The code in the body is the status."""
+    run = world.run(adapter_id, "midstream_502", timeout=150)
+    r = run.result
+    assert r["status"] == "errored" and r["error_class"] == "provider_error", r.get("error_message")
+    assert _last_error(run)["http_status"] == 502
+
+
+def test_a_failure_with_no_http_status_is_a_scored_agent_error(adapter_id, world):
+    """A connection that is closed without an answer has no status. The rule is the same for both adapters."""
+    run = world.run(adapter_id, "drop_connection", timeout=150)
+    r = run.result
+    assert r["status"] == "done", r.get("error_message")
+    assert r["outcome"]["exit_reason"] == "agent_error" and r["passed"] is False
+    assert _last_error(run).get("http_status") is None

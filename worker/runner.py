@@ -183,27 +183,34 @@ def _usage_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-_CONFIG_INVALID_HTTP = {400, 401, 403, 404, 422}
+def classify_http_status(status: Any) -> str | None:
+    """DESIGN 6.3: 429 is rate_limited, any other 4xx is config_invalid, 5xx is provider_error. A trial
+    with no HTTP status to go by (None, or anything that is not an integer) has no class: it is scored."""
+    if isinstance(status, bool) or not isinstance(status, int):
+        return None
+    if status == 429:
+        return "rate_limited"
+    if 400 <= status < 500:
+        return "config_invalid"
+    if 500 <= status < 600:
+        return "provider_error"
+    return None
 
 
 def _provider_failure(events: list[dict[str, Any]]) -> tuple[str, str] | None:
-    """A trial that ended because the provider failed is infra, not a scored failure (DESIGN 6.3).
-
-    Signalled by the adapter as an `error` event with retryable=true after a final api_call
-    event with status "error". The class comes from that call's HTTP status.
-    """
-    errors = [e for e in events if e.get("kind") == "error" and e.get("retryable") is True]
-    calls = [e for e in events if e.get("kind") == "api_call" and e.get("status") == "error"]
-    if not errors or not calls:
+    """A trial that ended because the provider answered with an HTTP error is infra, not a scored
+    failure (DESIGN 6.3, DESIGN 11 entry 17). The adapter says so with its last `error` event: an
+    integer `http_status` is the evidence, and the class follows from it. An `error` event without one
+    (the harness crashed, the connection dropped, nothing came back) leaves the trial a scored
+    agent_error. The `retryable` field is informational and is not read here."""
+    errors = [e for e in events if e.get("kind") == "error" and e.get("stage") == "run"]
+    if not errors:
         return None
-    status = calls[-1].get("http_status")
-    if status == 429:
-        klass = "rate_limited"
-    elif status in _CONFIG_INVALID_HTTP:
-        klass = "config_invalid"
-    else:
-        klass = "provider_error"
-    return klass, str(errors[-1].get("message", ""))
+    last = errors[-1]
+    klass = classify_http_status(last.get("http_status"))
+    if klass is None:
+        return None
+    return klass, str(last.get("message", ""))
 
 
 def _first_system_prompt(events: list[dict[str, Any]]) -> str | None:

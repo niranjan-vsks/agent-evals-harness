@@ -168,7 +168,7 @@ def test_provider_429_is_an_infra_error_not_a_scored_failure(runner_env, tasks_d
     assert res["passed"] is None
 
 
-def test_non_retryable_agent_error_is_a_scored_failure(runner_env, tasks_dir):
+def test_agent_error_without_an_http_status_is_a_scored_failure(runner_env, tasks_dir):
     res = run_trial(make_spec(tasks_dir, mode="agent_error"), runner_env)
     assert res["status"] == "done"
     assert res["outcome"]["exit_reason"] == "agent_error"

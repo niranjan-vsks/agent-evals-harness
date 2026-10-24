@@ -15,9 +15,10 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import openai
+if TYPE_CHECKING:
+    import openai
 
 from worker.adapters.base import (
     Capabilities,
@@ -72,7 +73,7 @@ class _ProviderFailure(Exception):
 
 class MinimalLoopAdapter:
     id = "minimal_loop"
-    version = f"1.0.0+{PROMPT_SHA256[:8]}"
+    version = f"1.1.0+{PROMPT_SHA256[:8]}"  # 1.1.0: provider failures end with an http_status (DESIGN 11 entry 17), providers_ignored
     capabilities = Capabilities(
         tools=frozenset({"shell", "files"}),
         memory_modes=frozenset({"off", "seeded"}),
@@ -110,7 +111,10 @@ class MinimalLoopAdapter:
             if value < 1:
                 problems.append(f"{label} must be at least 1")
         for key in sorted(settings.harness_options):
-            problems.append(f"harness_options.{key} is not supported by the minimal loop")
+            if key == "providers_ignored":
+                problems.extend(_validate_providers_ignored(settings.harness_options[key]))
+            else:
+                problems.append(f"harness_options.{key} is not supported by the minimal loop")
         return problems
 
     # ------------------------------------------------------------------ prepare / collect_memory
@@ -184,9 +188,9 @@ class MinimalLoopAdapter:
             try:
                 resp = self._call_model(client, ctx, messages, tools, step, w)
             except _ProviderFailure as e:
-                # retryable=true for every provider failure: the runner turns it into an errored
-                # trial (never a scored failure) and picks the class from the last call's status.
-                w.emit("error", stage="run", message=str(e), retryable=True)
+                # The final error event carries the HTTP status the provider answered with; the runner turns
+                # a 4xx or 5xx into an errored trial and leaves a failure with no status scored (DESIGN 11 entry 17).
+                w.emit("error", stage="run", message=str(e), retryable=e.status == 429 or (e.status or 0) >= 500, http_status=e.status)
                 return result("agent_error", last_text, (f"provider failure: {e}",))
             steps += 1
             u = resp.usage
@@ -239,9 +243,13 @@ class MinimalLoopAdapter:
 
     # ------------------------------------------------------------------ model call
 
-    def _call_model(self, client: openai.OpenAI, ctx: TrialContext, messages: list, tools: list, step: int, w: TraceWriter) -> Any:
+    def _call_model(self, client: "openai.OpenAI", ctx: TrialContext, messages: list, tools: list, step: int, w: TraceWriter) -> Any:
         """One logical model call. Every request that reaches the provider is an api_call event: a
         failed one with status retry (a wait follows) or error (the last), then the ok one (M-3)."""
+        import openai  # noqa: PLC0415 - imported when a model is called (about 5 s on a slow host)
+
+        ignored = ctx.settings.harness_options.get("providers_ignored")
+        extra = {"extra_body": {"provider": {"ignore": list(ignored)}}} if ignored else {}
         for attempt in range(len(BACKOFF_SECONDS) + 1):
             started = time.monotonic()
             status: int | None = None
@@ -253,14 +261,23 @@ class MinimalLoopAdapter:
                     temperature=ctx.settings.temperature,
                     max_tokens=ctx.settings.max_output_tokens,
                     seed=ctx.seed,
+                    **extra,
                 )
-                if not resp.choices:
-                    raise _ProviderFailure(None, "the provider returned a response with no choices")
+                body = getattr(resp, "error", None)
+                if body or not getattr(resp, "choices", None) or getattr(resp.choices[0], "finish_reason", None) == "error":
+                    # OpenRouter reports an upstream failure that happened after it had answered 200 as an error
+                    # object in the body, {"error": {"code": 502, "message": ...}}, with or without a choice whose
+                    # finish_reason is "error". The code is the status; with none there is none.
+                    code = body.get("code") if isinstance(body, dict) else None
+                    if isinstance(code, str) and code.strip().isdigit():
+                        code = int(code)
+                    note = body.get("message") if isinstance(body, dict) else None
+                    raise _ProviderFailure(code if isinstance(code, int) and not isinstance(code, bool) else None, str(note or "the provider returned a reply with no usable choice"))
             except openai.APIStatusError as e:
                 status, reason = e.status_code, f"HTTP {e.status_code}: {e.message}"
             except openai.APIConnectionError as e:
                 reason = f"connection error: {type(e).__name__}"
-            except openai.APIError as e:  # a body that is not a chat completion
+            except (openai.APIError, ValueError) as e:  # a body that is not a chat completion (not JSON, wrong shape)
                 reason = f"unusable response: {type(e).__name__}"
             except _ProviderFailure as e:
                 status, reason = e.status, str(e)
@@ -311,6 +328,12 @@ class MinimalLoopAdapter:
         return _clean(output), is_error
 
 
+def _validate_providers_ignored(value: Any) -> list[str]:
+    if not isinstance(value, list) or not value or not all(isinstance(v, str) and v and v == v.strip() for v in value):
+        return ["harness_options.providers_ignored must be a non-empty list of provider names (OpenRouter routing)"]
+    return []
+
+
 def _cut(text: str) -> str:
     """Keeps the head and the tail of long output (a traceback or a test summary is at the end)."""
     if len(text) <= MAX_TOOL_OUTPUT_CHARS:
@@ -321,7 +344,7 @@ def _cut(text: str) -> str:
 
 def _shell_env() -> dict[str, str]:
     """The child's environment without the provider keys: the agent has no use for them (M-4)."""
-    return {k: v for k, v in os.environ.items() if not k.upper().endswith(("_API_KEY", "_TOKEN", "_SECRET"))}
+    return {k: v for k, v in os.environ.items() if not k.upper().endswith(("_KEY", "_TOKEN", "_SECRET"))}
 
 
 def _kill_leftovers(pids: list[int]) -> None:

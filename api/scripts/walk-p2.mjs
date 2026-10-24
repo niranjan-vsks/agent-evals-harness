@@ -40,14 +40,14 @@ const settings = (over = {}) => ({
   max_steps: 15,
   max_output_tokens: 2048,
   timeout_seconds: 300,
-  harness_options: {},
+  harness_options: { providers_ignored: ['Darkbloom'] }, // DESIGN 13.5
   ...over,
 });
 
 console.log(`P2 walk against ${api} with model ${modelId}`);
 const good = await call('POST', '/configs', { name: 'minimal_loop memory off', harness_id: 'minimal_loop', model_id: modelId, settings: settings() });
 check([200, 201].includes(good.status), `POST /configs minimal_loop memory off -> ${good.status}`, JSON.stringify(good.body));
-check(good.body.harness_version?.startsWith('1.0.0+'), `harness version ${good.body.harness_version}`);
+check(good.body.harness_version?.startsWith('1.1.0+'), `harness version ${good.body.harness_version}`);
 
 async function trial(configId, taskId) {
   const run = await call('POST', '/trials/adhoc', { config_id: configId, task_id: taskId });

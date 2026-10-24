@@ -71,10 +71,20 @@ class FakeAdapter:
             (ws / "answer.txt").write_text("42\n", encoding="utf-8")
         elif mode == "list_workspace":
             final = "FINAL: " + ",".join(sorted(p.relative_to(ws).as_posix() for p in ws.rglob("*")))
-        elif mode == "provider_429":
+        elif mode.startswith("provider_") and mode[9:].isdigit():
+            status = int(mode[9:])  # provider_429, provider_502, provider_401, provider_400 ...
+            w.emit("api_call", step=2, model=ctx.model.slug, input_tokens=0, output_tokens=0, latency_ms=2, status="error", http_status=status)
+            w.emit("error", stage="run", message=f"provider answered {status}", retryable=status == 429 or status >= 500, http_status=status)
+            return self._result(None, "agent_error", 1, [f"provider {status}"])
+        elif mode == "error_without_status":
+            w.emit("api_call", step=2, model=ctx.model.slug, input_tokens=0, output_tokens=0, latency_ms=2, status="error", http_status=None)
+            w.emit("error", stage="run", message="connection dropped", retryable=True, http_status=None)
+            return self._result(None, "agent_error", 1, ["no status"])
+        elif mode == "old_style_retryable_error":
+            # What an adapter written before DESIGN 11 entry 17 emits: retryable=true and a 429 on the api_call, but no http_status on the error.
             w.emit("api_call", step=2, model=ctx.model.slug, input_tokens=0, output_tokens=0, latency_ms=2, status="error", http_status=429)
             w.emit("error", stage="run", message="rate limited by provider", retryable=True)
-            return self._result(None, "agent_error", 1, ["provider 429"])
+            return self._result(None, "agent_error", 1, ["old style"])
         elif mode == "agent_error":
             w.emit("error", stage="run", message="model produced garbage", retryable=False)
             return self._result(None, "agent_error", 1, [])

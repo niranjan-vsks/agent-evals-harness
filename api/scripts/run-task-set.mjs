@@ -2,6 +2,7 @@
 //
 //   node scripts/run-task-set.mjs [--api URL] [--model model-b] [--harness hermes] [--memory off|seeded|both]
 //                                 [--tasks id,id,...] [--repeat N] [--out file.jsonl]
+//                                 [--harness-options '{}']   default: {"providers_ignored":["Darkbloom"]}
 //
 // --memory off     every selected task under the memory-off config
 // --memory seeded  only the tasks whose discriminates includes "memory", under the seeded config
@@ -33,6 +34,8 @@ async function call(method, path, body) {
   return { status: res.status, body: json };
 }
 
+// Darkbloom, an OpenRouter provider of model-b, answers HTTP 502 on some conversations (DESIGN 13.5): leave it out unless told otherwise.
+const harnessOptions = args['harness-options'] ? JSON.parse(args['harness-options']) : { providers_ignored: ['Darkbloom'] };
 const settings = (memory) => ({
   tools: ['shell', 'files'],
   memory,
@@ -41,11 +44,11 @@ const settings = (memory) => ({
   max_steps: 15,
   max_output_tokens: 2048,
   timeout_seconds: 300,
-  harness_options: {},
+  harness_options: harnessOptions,
 });
 
 async function config(label, memory) {
-  const res = await call('POST', '/configs', { name: `${harness} ${label}`, harness_id: harness, model_id: modelId, settings: settings(memory) });
+  const res = await call('POST', '/configs', { name: `${harness} ${label}${args['harness-options'] ? ' ' + args['harness-options'] : ''}`, harness_id: harness, model_id: modelId, settings: settings(memory) });
   if (![200, 201].includes(res.status)) throw new Error(`POST /configs (${label}) -> ${res.status} ${JSON.stringify(res.body)}`);
   return res.body.id;
 }

@@ -59,6 +59,19 @@ describe('POST /configs', () => {
     expect(renamed.body.name).toBe('one');
   });
 
+  it('treats providers_ignored as a set: another order or a repeat is the same config, and having it is a different one', async () => {
+    const s = fresh();
+    const first = await http.post('/configs').send(configBody({}, { ...s, harness_options: { providers_ignored: ['Groq', 'Darkbloom'] } }));
+    const again = await http.post('/configs').send(configBody({}, { ...s, harness_options: { providers_ignored: ['Darkbloom', 'Groq', 'Darkbloom'] } }));
+    const without = await http.post('/configs').send(configBody({}, s));
+    expect(first.status).toBe(201);
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(first.body.id);
+    expect(first.body.settings.harness_options).toEqual({ providers_ignored: ['Darkbloom', 'Groq'] });
+    expect(without.status).toBe(201);
+    expect(without.body.id).not.toBe(first.body.id);
+  });
+
   it('makes a new config when any setting, the model or the harness version differs', async () => {
     const s = fresh();
     const base = await http.post('/configs').send(configBody({}, s));
@@ -102,7 +115,7 @@ describe('POST /configs', () => {
     const before = await prisma.config.count();
     worker.validateErrors = ['harness_options.turbo is not supported by hermes'];
     const res = await http.post('/configs').send(configBody({}, { ...fresh(), harness_options: { turbo: true } }));
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(res.body.reasons).toEqual(['harness_options.turbo is not supported by hermes']);
     expect(await prisma.config.count()).toBe(before);
   });
@@ -121,11 +134,11 @@ describe('POST /configs', () => {
     expect((await http.post('/configs').send(configBody({}, { memory: { mode: 'persistent' } }))).status).toBe(400);
   });
 
-  it('refuses an unknown model, an unknown harness and an unsynced fixture with 422', async () => {
-    expect((await http.post('/configs').send(configBody({ model_id: 'nope' }, fresh()))).status).toBe(422);
-    expect((await http.post('/configs').send(configBody({ harness_id: 'nope' }, fresh()))).status).toBe(422);
+  it('refuses an unknown model, an unknown harness and an unsynced fixture with 400', async () => {
+    expect((await http.post('/configs').send(configBody({ model_id: 'nope' }, fresh()))).status).toBe(400);
+    expect((await http.post('/configs').send(configBody({ harness_id: 'nope' }, fresh()))).status).toBe(400);
     const res = await http.post('/configs').send(configBody({}, { ...fresh(), memory: { mode: 'seeded', fixture: 'absent' } }));
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(400);
     expect(res.body.reasons[0]).toContain('absent');
   });
 

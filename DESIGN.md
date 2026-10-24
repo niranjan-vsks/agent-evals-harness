@@ -195,9 +195,10 @@ confidence interval accounts for the run-to-run variance.
 
 | event | where seen | action | scored? |
 |---|---|---|---|
-| HTTP 429 from provider | adapter (minimal loop: backoff 1, 2, 4, 8, 16 s, 5 tries; Hermes: its own 3 retries first) | `api_call` event with `status: retry`; if exhausted → `error_class: rate_limited` | no, retried at trial level |
-| HTTP 5xx, connection error, read timeout | same | same path, `provider_error` | no, retried |
-| HTTP 400, 401, 403, 404, 422 | same | `config_invalid`, not retried | no, terminal |
+| HTTP 429 from provider | adapter (minimal loop: backoff 1, 2, 4, 8, 16 s, up to 5 retries; Hermes: a single attempt, M-3 and entry 6; the trial-level retry does the waiting) | `api_call` event with `status: retry`; if exhausted → `error_class: rate_limited` | no, retried at trial level |
+| HTTP 5xx, including a 5xx reported inside an HTTP 200 reply | same | same path, `provider_error` | no, retried |
+| HTTP 400, 401, 403, 404, 422 (any 4xx but 429) | same | `config_invalid`, not retried | no, terminal |
+| no HTTP status at all: a connection closed without an answer, a read timeout, a harness that crashed | adapter | `agent_error`, `done`, `passed = false` (DESIGN 11, entry 17) | yes |
 | wall clock exceeded | runner (R-2) | `exit_reason: timeout`, `done`, `passed = false` | yes |
 | max_steps reached | adapter | `exit_reason: max_steps`, `done`, `passed = false` | yes |
 | malformed tool calls | adapter | `invalid_tool_call`, `done`, `passed = false` | yes |
@@ -279,11 +280,14 @@ llm_judge 5. Fixtures with computed answers (`det-01`, `det-07`, `det-08`) are p
 `tasks/gen/*.py` with a fixed seed and committed together with the expected value, so the
 expected value is derived, never typed by hand.
 
-Why these discriminate: the 6 memory-dependent tasks are unanswerable from the workspace;
-a memory-off agent must guess or admit ignorance, and 4 of the 6 have a single exact
-answer no guess will hit. `mem-05` is the strongest: the correct behaviour (adding
-`--strict`) is invisible without memory and the trace check proves the mechanism, not
-just the answer. The 2 distractor tasks catch the failure mode where memory hurts (stale
+Why these discriminate: 5 of the 6 memory-dependent tasks are unanswerable from the workspace;
+a memory-off agent must guess or admit ignorance, and 3 of the 6 (`mem-01`, `mem-02`,
+`mem-04`) have a single exact answer no guess will hit; `mem-03` needs 3 exact values in a file and
+`mem-06` is judged. `mem-05` is different in kind: `lint.py` is in the workspace and an
+agent that reads it can see that a `--strict` mode exists, so memory supplies the knowledge that
+the team runs it, not the flag. It is kept because the trace check proves the mechanism, not just
+the answer (a lucky `FAIL` without a strict run does not pass), and because in the first run of
+the set (STATE.md P2) the memory-off agent did not take the strict path. The 2 distractor tasks catch the failure mode where memory hurts (stale
 or preference content overriding explicit instructions). The 14 neutral and honesty tasks
 are expected to show no memory effect; they are the noise floor and the control.
 
@@ -617,39 +621,102 @@ become results, not exceptions).
 13. **The last step's tool calls are executed.** When the model's `max_steps`-th reply asks for
     tools, the loop runs them and then stops with `max_steps`; it does not ask for a
     summary (Hermes does, entry 7). `steps` equals `max_steps` in that case.
-14. **`retryable` on the `error` event means "infrastructure", not "worth retrying".** The
-    runner (`_provider_failure`) turns an `agent_error` into an errored trial only when the
-    `error` event says `retryable: true`, and then picks the class from the last call's HTTP
-    status (400, 401, 403, 404 and 422 are `config_invalid`). The minimal loop sets
-    `retryable: true` for every provider failure, which is what DESIGN 6.3 asks for. The
-    Hermes adapter sets it only for 429, 5xx and a missing status (`last_error_retryable`),
-    so under Hermes a 401 is a scored `agent_error` and not a `config_invalid` error. The two
-    adapters therefore disagree on DESIGN 6.3 for 4xx. The conformance suite does not cover it
-    (the stub has no 4xx scenario for the main loop). Not fixed in P2; see STATE.md, "Found but
-    not fixed".
+14. **The two adapters disagreed on 4xx.** The runner read the `retryable` flag of the `error`
+    event, the minimal loop set it for every provider failure and Hermes only for 429, 5xx and a
+    missing status, so under Hermes a 401 was a scored `agent_error` and under the minimal loop
+    an errored `config_invalid` trial. Found at the end of P2 and settled by entry 17.
 15. **`seed` (A-8).** The minimal loop sends `seed` on every request. OpenRouter lists `seed`
     in `supported_parameters` for some models and not others (STATE.md: `model-a` lists
     neither `seed` nor `temperature`, `model-b` lists both), and drops what a model does not
     support. `capabilities.seed` stays `True`, as ADAPTERS 4 fixes, and the value means "sent",
     not "honored by every model". The adapter does not read the model row to decide (M-1).
-16. **Size and tool output.** The adapter is about 340 lines with its docstrings and blank
+16. **Size and tool output.** The adapter is about 400 lines with its docstrings and blank
     lines, not the 150 ADAPTERS 4 estimates; the extra is the retry schedule, the process-group
     kill for a timed-out shell command (so a background grandchild cannot hold the output pipe
     open) and the path guard. Tool output shown to the model is cut at 10,000 characters with a
     notice; the trace keeps the cut text (the runner's own limit is 20,000 per field).
+
+17. **Contract clarification: the last `error` event carries the HTTP status, and the runner
+    classifies from it.** ADAPTERS 2 (H-6) says `run()` must not raise for a model-side or
+    tool-side failure; it does not say how a provider's HTTP error is reported. The rule, for both
+    adapters, in force since the end of P2 (it supersedes entry 14 and the bullet below):
+    - An adapter whose run ended because the provider answered with an HTTP error returns
+      `exit_reason: agent_error` and ends its trace with an `error` event (`stage: "run"`) whose
+      `http_status` is that integer. `retryable` stays on the event for readers (true for 429 and
+      5xx) and is not read by the runner.
+    - The runner (`classify_http_status`) turns that into an errored trial: 429 `rate_limited`;
+      any other 4xx (400, 401, 402, 403, 404, 408, 413, 422 ...) `config_invalid`; 5xx
+      `provider_error`. An errored trial is never scored and the scheduler (P3) retries the
+      retryable classes.
+    - An `error` event with no integer `http_status` (the harness raised, the connection was
+      closed without an answer, a read timed out) leaves the trial a scored `agent_error`. This
+      narrows the old DESIGN 6.3 row that sent "connection error, read timeout" to
+      `provider_error`; the table now says so. It is the one place the rule is unlike the old text,
+      and it favours not discarding trials over treating every silent failure as infrastructure.
+    - Where the status comes from. The minimal loop reads it from the exception
+      (`APIStatusError.status_code`) or, when OpenRouter answers HTTP 200 with
+      `{"error": {"code": 502, ...}}` in the body, from that code. Hermes has no `status_code` in
+      that second case (OpenRouter reports a provider that died after it began to answer inside the
+      stream or the body, and the SDK raises an error with no HTTP status), so the adapter takes the
+      first of: the hook's `status_code`; the status that Hermes's own classification of the error
+      stands for (`reason`: `server_error` is 502, `overloaded` 503, `rate_limit` 429, `auth` 401,
+      `format_error` 400, ...); Hermes's own hint text for an invalid response ("upstream server
+      error (502, 2s)"). The event says which (`http_status_source`: `http`,
+      `hermes_reason:<reason>`, `hermes_hint`). A reason that is not an HTTP error (a timeout, a TLS
+      failure) maps to no status. The text patterns and the reason table are pinned to Hermes
+      `f4ac0bea1e` and covered by `test_error_status_sources.py`; a Hermes bump must re-run them.
+    - What is not a status. Hermes raises `content_policy_blocked` for an HTTP 200 reply with
+      `finish_reason: content_filter`: a refusal, not an HTTP error, so it has no status and is a
+      scored `agent_error` (a real HTTP 400 with the same reason keeps the hook's 400). The hint text
+      is read only for `reason == "invalid_response"` and only when the message begins with
+      Hermes's own "Invalid API response after N retries:". A failed result that Hermes marks
+      `partial` (it had delivered some text before the provider gave out) is an `agent_error` with
+      its status, not `invalid_tool_call`; exhausted context compression keeps the old reading.
+    - The minimal loop reads the error object of a 200 body whether or not `choices` is empty, and
+      accepts a code written as a digit string; a body that is not a chat completion at all (HTML,
+      a list, invalid JSON) is a provider failure with no status and not a crash.
+    - Adapter versions. The minimal loop's version is now `1.1.0+<prompt hash>` because its
+      behaviour changed; Hermes's version is its commit and cannot show a change in the adapter
+      around it, so a config made before this change and one made after it name the same Hermes
+      version.
+    - Tests: the conformance suite has 4 new tests over both adapters (4xx to `config_invalid`
+      with 400, 401 and 404; 5xx to `provider_error`; an upstream 502 behind an HTTP 200 to
+      `provider_error`; a closed connection to a scored `agent_error`), and the runner has
+      `test_error_classification.py`.
+18. **`harness_options.providers_ignored` (OpenRouter `provider.ignore`).** The one harness
+    option both adapters accept: a non-empty list of provider names the request must not be
+    routed to. Hermes passes it to `AIAgent(providers_ignored=...)`; the minimal loop sends
+    `extra_body={"provider": {"ignore": [...]}}` on every request. It is part of the config
+    hash, so two configs that differ in it are different configs. It exists because of the
+    Darkbloom failures (DESIGN 13.5). ADAPTERS 1 calls `harness_options` opaque and adapter
+    specific, so this is not a contract change. Names are compared exactly by OpenRouter, so a
+    name with leading or trailing whitespace is refused; a misspelt or wrong-case name is accepted
+    and ignores nothing, and `validate` cannot tell, because it sees settings and not the model, so
+    it also accepts the option for a model that is not behind OpenRouter. The API sorts and
+    de-duplicates the list before hashing.
 
 Not findings about ADAPTERS.md but decisions it left open, recorded here so P2 inherits them:
 
 - **Grader-only files live in `_hidden/`.** DESIGN 7.3 names `equals_file` and `hidden_files`
   but not where they are stored. They go in `<fixture_dir>/_hidden/`, which the runner never
   copies into the workspace (R-5, R-7) and which stays inside the hashed fixture tree (R-6).
+- **The card says `hidden/`; the runner says `_hidden/`.** cards/P2.md section 6 puts hidden test
+  files under `fixtures/<id>/hidden/`. The runner copies everything in a fixture except a
+  top-level `_hidden/` (R-5, R-7), so a directory named `hidden/` would have been copied into the
+  workspace and shown to the agent. P2 uses `_hidden/` throughout, as P1 did.
+- **`unit_test` runs pytest on its own terms.** Its command runs with `--noconftest`, an empty ini
+  file outside the workspace as the config, and the workspace as the root, so a `conftest.py` or
+  `pytest.ini` the agent wrote cannot change what the hidden tests mean. A module in the workspace
+  that shadows `pytest` or the standard library is not stopped (no sandbox, section 13).
+- **`exact_match` tolerates presentation, not content.** `**FINAL: x**`, `> FINAL: x`, an
+  answer wrapped in backticks or asterisks, and one trailing full stop are read as `x`. A thousands separator, a unit or a currency symbol is
+  not. DESIGN 7.1 says the line is `FINAL: <answer>`; a correct answer in bold is still correct, and
+  the independent review of the task set found several such forms that the strict reading rejected.
 - **A timed-out trial is graded as failed without running the graders.** One failed
   `grader_result` row per grader keeps D-14 true (the AND over zero rows would be true).
   P2 must give a synthesized `llm_judge` row its judge ids (the CHECK requires them).
-- **Provider failures are classified by the runner.** An `agent_error` result with an `error`
-  event marked `retryable` and a final `api_call` with status `error` becomes an errored trial
-  (429 `rate_limited`; 400, 401, 403, 404, 422 `config_invalid`; anything else
-  `provider_error`), never a scored failure.
+- **Provider failures are classified by the runner**, from the `http_status` of the last `error`
+  event, as entry 17 says (this replaced the P1 rule that read the `retryable` flag).
 
 ---
 
@@ -708,6 +775,11 @@ Where the platform's conclusions should not be trusted, and why.
    the process but means it cannot penalize a right answer reached by a wrong method. If
    the secondary experiment compares models, the judge may be 1 of them (self-preference
    bias); the payload names the judge model so the reader can see this.
+   The judge reads its reference material (`NOTES.md`, `diff.patch`, `util.py`, `test_flaky.py`)
+   from the workspace after the run, so an agent that edits those files changes what it is judged
+   against; the trace shows the edit, and no grader forbids it. Its model (`model-a`) accepts no
+   `temperature` on OpenRouter, so "temperature 0" may be dropped and a re-judge of the same output
+   can differ; the stored reasoning and the recorded `judge_model_slug` are what a reader has.
 3. **Contamination.** Deterministic tasks (`slugify`, median, CSV counting) are the kind
    of thing models have seen many times; they measure competence at familiar work, not
    generalization. Memory tasks use invented facts, so they cannot be contaminated, which
@@ -731,6 +803,27 @@ Where the platform's conclusions should not be trusted, and why.
    has none of these, so "Hermes vs minimal loop" compares behaviours the platform cannot
    fully equalize; the comparison axis label says "harness" and the reader should expect
    these confounds.
+   The OpenRouter route is a confound of its own. `openai/gpt-oss-20b` is served by up to 10
+   providers whose price and behaviour differ. One of them, Darkbloom (the cheapest, and the
+   source of `model-b`'s registry price), answered HTTP 502 `provider_unavailable` ("Upstream
+   error from Darkbloom: inference generation failed", raw body
+   `{"code": 502, "message": ..., "metadata": {"error_type": "provider_unavailable"}}`, captured
+   on 2026-10-24 for `det-03-slugify` at step 4 of one attempt) on `det-03-slugify` and
+   `det-04-median` in 9 of 9 attempts under Hermes, while the same tasks passed under the minimal
+   loop and with Darkbloom excluded. Configs for runs that compare anything should set
+   `harness_options.providers_ignored = ["Darkbloom"]` (entry 18), which leaves the other
+   providers: with it, 3 of 4 attempts of those 2 tasks scored (a fourth ended in an upstream
+   400-class tool-call validation error from Groq, an errored trial). Three things follow. The
+   provider is not pinned: OpenRouter picks among the rest (Hermes sends a top-level `session_id`,
+   `<trial_id>-<attempt>`, that OpenRouter uses as a sticky routing key, and the minimal loop sends
+   none, so routing may be sticky for one harness and per request for the other, a confound of its
+   own; the serving provider is not recorded per call), so prices (0.02 to 0.075
+   USD per million input tokens, 0.10 to 0.30 output, from the endpoints listing of 2026-10-24)
+   and tool-call formatting vary between trials, and `model-b`'s registry price (0.018 / 0.09,
+   Darkbloom's) understates the cost of a routed call. A provider's own rejection of a malformed
+   tool call is an errored trial here, though it is the model's doing. And a provider that fails
+   deterministically on one conversation will do so again at temperature 0, so an errored trial is
+   not always fixed by a retry.
 6. **No sandbox.** The agent's shell runs in the worker container with the workspace as
    cwd. Host side effects are limited to the container, not prevented. A task that asks
    for network access would succeed or fail based on the container's network, which the
@@ -739,6 +832,13 @@ Where the platform's conclusions should not be trusted, and why.
    same container, so an agent that went looking could read them. No prompt points there and the
    runner keeps them out of the workspace (R-5, R-7), but the only protection against a search of
    the filesystem is that the trace would show it: a `tool_call` whose arguments name `/tasks`.
+   The same holds for the trial's own directory: `../spec.json` (which holds the task's graders)
+   and, for the minimal loop, `../memory/` (the seed) are one level above the workspace. The minimal
+   loop's shell drops environment variables whose names end `_KEY`, `_TOKEN` or `_SECRET`; Hermes's
+   terminal drops its own provider blocklist (`tools/environments/local_env_policy.py`, which
+   includes `OPENROUTER_API_KEY`) and passes every other worker variable, so a credential under a
+   new name would reach it. Real confinement (a separate uid or a mount namespace for
+   the agent's shell) is not built.
 7. **Single run, single day.** The experiment is 1 run on 1 day against 1 provider
    backend. Reproduction (section 6.2) re-runs the inputs; it cannot re-run the backend.
 8. **Pre-registration is procedural, not cryptographic.** D-10 stops edits through the

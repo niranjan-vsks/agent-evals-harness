@@ -18,8 +18,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "tasks:lint": "ts-node --transpile-only src/tasks/lint-cli.ts",
     "tasks:sync": "node dist/tasks/sync-cli.js",
-    "judge:sample": "ts-node --transpile-only src/judge/sample-cli.ts",
-    "judge:kappa": "ts-node --transpile-only src/judge/kappa-cli.ts"
+    "judge:sample": "node dist/judge/sample-cli.js",
+    "judge:kappa": "node dist/judge/kappa-cli.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

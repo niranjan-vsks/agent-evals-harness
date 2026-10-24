@@ -1,0 +1,19 @@
+{
+  "captured_at": "2026-10-24T12:30:43Z",
+  "how": "one attempt of det-03-slugify under Hermes (worker container, real key, no providers_ignored), the request dump Hermes writes when its retries are exhausted; headers and request omitted",
+  "harness": "hermes f4ac0bea1e",
+  "model": "openai/gpt-oss-20b",
+  "api_call_that_failed": 4,
+  "hermes_hook": {"status_code": null, "reason": "server_error", "error_type": "APIError"},
+  "dump_reason": "max_retries_exhausted",
+  "error": {
+    "type": "APIError",
+    "message": "Upstream error from Darkbloom: inference generation failed",
+    "code": 502,
+    "body": {
+      "code": 502,
+      "message": "Upstream error from Darkbloom: inference generation failed",
+      "metadata": {"error_type": "provider_unavailable"}
+    }
+  }
+}

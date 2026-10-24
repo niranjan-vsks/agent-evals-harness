@@ -4,7 +4,6 @@ import {
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { ulid } from '../common/ulid';
@@ -74,14 +73,14 @@ export class ConfigsService {
     const input = parsed.data;
 
     const model = await this.prisma.model.findUnique({ where: { id: input.model_id } });
-    if (!model) throw new UnprocessableEntityException({ message: 'config refused', reasons: [`model ${input.model_id} is not in the registry`] });
+    if (!model) throw new BadRequestException({ message: 'config refused', reasons: [`model ${input.model_id} is not in the registry`] });
 
     let harnessVersion: string;
     try {
       const manifest = await this.harnesses.refresh();
       const adapter = manifest.adapters.find((a) => a.id === input.harness_id);
       if (!adapter) {
-        throw new UnprocessableEntityException({ message: 'config refused', reasons: [`harness ${input.harness_id} is not registered on the worker`] });
+        throw new BadRequestException({ message: 'config refused', reasons: [`harness ${input.harness_id} is not registered on the worker`] });
       }
       harnessVersion = adapter.version;
     } catch (e) {
@@ -96,7 +95,7 @@ export class ConfigsService {
         orderBy: { syncedAt: 'desc' },
       });
       if (!fixture) {
-        throw new UnprocessableEntityException({
+        throw new BadRequestException({
           message: 'config refused',
           reasons: [`memory fixture ${input.settings.memory.fixture} has not been synced from tasks/memory/`],
         });
@@ -113,7 +112,7 @@ export class ConfigsService {
       if (e instanceof WorkerUnavailableError) throw new ServiceUnavailableException(e.message);
       throw e;
     }
-    if (reasons.length) throw new UnprocessableEntityException({ message: 'config refused: the harness cannot honor these settings exactly', reasons });
+    if (reasons.length) throw new BadRequestException({ message: 'config refused: the harness cannot honor these settings exactly', reasons });
 
     const hash = configHash({ harness_id: input.harness_id, harness_version: harnessVersion, model_slug: model.slug, settings });
     const existing = await this.prisma.config.findUnique({ where: { configHash: hash } });

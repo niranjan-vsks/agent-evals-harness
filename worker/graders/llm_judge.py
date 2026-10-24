@@ -18,9 +18,10 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import openai
+if TYPE_CHECKING:
+    import openai
 
 from worker.adapters.base import ModelSpec
 from worker.graders.exact_match import SpecProblem
@@ -148,7 +149,7 @@ def decide(pass_rule: str, criteria: list[dict[str, Any]]) -> bool:
 class _Conversation:
     """One judge call with its transient-error retries and the json_object fallback."""
 
-    def __init__(self, client: openai.OpenAI, model: ModelSpec):
+    def __init__(self, client: "openai.OpenAI", model: ModelSpec):
         self.client, self.model = client, model
         self.json_mode = True
         self.input_tokens = 0
@@ -156,6 +157,8 @@ class _Conversation:
         self.started = time.monotonic()
 
     def complete(self, messages: list[dict[str, str]]) -> str:
+        import openai  # noqa: PLC0415 - only a judge call needs it
+
         for attempt in range(len(TRANSIENT_BACKOFF_SECONDS) + 1):
             if time.monotonic() - self.started > DEADLINE_SECONDS:
                 raise JudgeError(f"the judge model did not answer within {int(DEADLINE_SECONDS)} seconds")
@@ -199,7 +202,7 @@ def grade_llm_judge(
     final_response: str | None,
     workspace_dir: str,
     judge_model: ModelSpec,
-    client: openai.OpenAI | None = None,
+    client: "openai.OpenAI | None" = None,
 ) -> JudgeOutcome:
     rubric = spec.get("rubric")
     inputs = spec.get("inputs")

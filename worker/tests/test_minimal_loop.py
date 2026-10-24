@@ -113,7 +113,7 @@ def kinds(events: list[dict], kind: str) -> list[dict]:
 
 def test_the_version_carries_the_hash_of_the_fixed_system_prompt():
     assert PROMPT_SHA256 == hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
-    assert ADAPTER.version == f"1.0.0+{PROMPT_SHA256[:8]}"
+    assert ADAPTER.version == f"1.1.0+{PROMPT_SHA256[:8]}"
     assert len(SYSTEM_PROMPT.splitlines()) == 6
 
 

@@ -9,7 +9,7 @@ function task(id: string, over: Record<string, unknown> = {}): string {
   return JSON.stringify({
     id,
     category: 'neutral_deterministic',
-    prompt: 'first prompt',
+    prompt: 'first prompt FINAL: x',
     fixture_dir: null,
     memory_fixture: null,
     graders: [{ type: 'exact_match', expected: 'x' }],
@@ -61,14 +61,14 @@ describe('task sync', () => {
     writeFileSync(join(dir, `${id}.json`), task(id));
     await service.sync(dir);
     const [v1] = await rows();
-    writeFileSync(join(dir, `${id}.json`), task(id, { prompt: 'second prompt' }));
+    writeFileSync(join(dir, `${id}.json`), task(id, { prompt: 'second prompt FINAL: x' }));
     const result = await service.sync(dir);
     expect(result.new_versions).toHaveLength(1);
     const found = await rows();
     expect(found).toHaveLength(2);
     expect(found.filter((r) => r.isCurrent)).toHaveLength(1);
     expect(found.find((r) => r.versionHash === v1.versionHash)?.isCurrent).toBe(false);
-    expect(found.find((r) => r.isCurrent)?.prompt).toBe('second prompt');
+    expect(found.find((r) => r.isCurrent)?.prompt).toBe('second prompt FINAL: x');
     // Going back to the first text makes the first version current again, without a third row.
     writeFileSync(join(dir, `${id}.json`), task(id));
     await service.sync(dir);

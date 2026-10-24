@@ -41,12 +41,20 @@ def test_a_command_that_reads_stdin_gets_end_of_file_instead_of_hanging(monkeypa
 @pytest.mark.skipif(sys.platform == "win32", reason="process groups")
 def test_a_background_process_does_not_outlive_the_trial(monkeypatch, tmp_path):
     marker = tmp_path / "bg.pid"
-    run(monkeypatch, make_ctx(tmp_path), [reply(calls=[call("shell", cmd=f"sleep 300 & echo $! > {marker}")]), reply("done")])
+    # Output redirected, as an agent does for a server: otherwise the command would hold the pipe open and run into its own timeout.
+    cmd = f"sleep 300 > /dev/null 2>&1 & echo $! > {marker}"
+    run(monkeypatch, make_ctx(tmp_path), [reply(calls=[call("shell", cmd=cmd)]), reply("done")])
     pid = int(marker.read_text().strip())
-    for _ in range(30):
+
+    def dead() -> bool:
         try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (FileNotFoundError, ProcessLookupError):
+            return True
+        return state == "Z"  # killed but not yet reaped: a container's pid 1 may not reap orphans
+
+    for _ in range(30):
+        if dead():
             return
         time.sleep(0.1)
     os.kill(pid, 9)
