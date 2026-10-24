@@ -49,8 +49,185 @@ judge tooling. P3 experiments + scheduler + stats + exports. P4 UI. P5 the real
 experiment + README + video script. P6 failure categories (stretch). After P3 the
 submission is coherent without the UI.
 
-**Status.** P1 is done: all 5 gates passed (gates 1 and 3 on the host, gates 2, 3, 4 and 5 in
-the compose stack). Next action: P2 (`cards/P2.md`); see the P1 section, "Next action".
+**Status.** P1 and P2 are done: all 5 gates of each passed (see the P2 section for the numbers and
+the isolated stack they ran on). P3 and P4 are with a second session (its P3 section is at the end of this file).
+
+---
+
+## P2: Minimal loop, all graders, the 22 tasks, judge tooling
+
+Built on the same Windows 11 host as P1. The last gates ran on this PC with Docker Desktop 4.96.1 (Compose 5.6.0). Commits, in order: `685355b` S1, `9c387d6` S2, `e7b0bed` S3, `1489d7c` S4+S5 (with the first review's fixes), `9c138b3` (the HTTP-status rule, `providers_ignored`, the second review's fixes), `704df23` (Groq, `finish_reason: error`), `6462e05` (a test hardened), and the close-out commit that adds this section. The code that the numbers below were measured on is `704df23` for the images and the live runs and `6462e05` for the host suites; the commits after `704df23` that are not P2's belong to the P3 session.
+
+**How the gates were run, and why.** A second session builds P3 in the same checkout and used the same Docker project at the same time, so a rebuild by either would have swapped the other's containers. The P2 gates therefore ran on an isolated stack: `git archive <commit>` into `C:\hx\build` (outside OneDrive), a copy of `docker-compose.yml` with ports 3100, 8100 and 8180 and the repo's `.env` by absolute path, and `docker compose -p p2verify ...` (project name `p2verify`). Host suites ran from a second clean export (`C:\hx\final_6462e05`). That also is a clean-tree build: nothing untracked was in the images. The `p2verify` stack can be left up or removed with `docker compose -p p2verify down` from `C:\hx\build`.
+
+**Quirks of this machine, for the next session.**
+- Host Jest silently skips every file that OneDrive has synced to the cloud: Node reports those files as symbolic links, so `npm test` on the OneDrive checkout ran 7 suites of 16 and said "passed". Run API tests from a copy outside OneDrive (a `git archive` export plus a junction for `node_modules`, then `npx prisma generate`, because `src/generated/` is gitignored). `pytest` is not affected; the containers copy the files and are not affected either.
+- `import openai` takes about 5 s here. It used to run when `worker.graders` was imported, so a child that was meant to stall and be killed at 3 s was killed before it wrote its first event (`test_r2_*`, `test_r4_*` failed). The import is now lazy in `models.py`, `llm_judge.py` and the minimal loop; a child starts in about 0.9 s.
+- The PC slept for hours during one run. The minimal-loop task-set run then logged 20 to 50 ms `APIConnectionError`s. That run is kept as `experiments/p2/minimal-loop-run-interrupted-by-network-outage.jsonl` and was redone (below). A laptop that sleeps will do this again.
+- `curl` and any command that names a `.env` file are refused by this session's permission rules; the scripts use Node `fetch`. Docker Desktop was not running at the start of the second session and had to be started from `C:\Users\NIRANJAN VSKS\AppData\Local\Programs\DockerDesktop\Docker Desktop.exe`.
+
+### Shipped
+
+- **S1** `worker/adapters/minimal_loop/{adapter,prompt}.py` (about 400 lines, not the 150 of ADAPTERS 4) and the `REGISTRY` line; the conformance suite runs unchanged for both adapters. DESIGN 11 entries 10 to 16. ADAPTERS.md was not edited.
+- **S2** `graders/trace_check.py`, `graders/unit_test.py` (hidden files copied in after the run; pytest run with `--noconftest` and an empty ini outside the workspace), dispatch in `graders/__init__.py`; `api/src/tasks/task-schema.ts` types all 5 grader types (strict objects, relative paths, a `json_path` it can walk) and `lint-rules.ts` relates prompt, graders, category and fixture.
+- **S3** `graders/llm_judge.py`, `graders/judge_prompt_v1.txt` (hash `931d22859676a58fd021856e094109ce06b40399921af7bcb84534875f68b019`, pinned in a test), the scripted judge scenarios in the stub, `spec.judge_model` in the TrialSpec, `api/src/judge/judge-model.ts` (JUDGE_MODEL_ID, role check), judge ids on the synthesized rows of a timed-out trial. The judge stores the text it saw (`details.judged_inputs`), its model slug, and its reasoning verbatim.
+- **S4** the 22 tasks of DESIGN 7.2, their fixtures, the 3 generators and `tasks/gen/README.md`, and the tests that treat the set as an instrument: `test_task_set.py` (a reference answer passes, plausible wrong answers fail, an untouched workspace fails, no answer is readable from the prompt or the fixture, each memory-dependent answer is in the memory fixture), `test_task_generators.py`, `test_judge_live.py` (19 real judge calls, `RUN_LIVE=1`), `api/scripts/run-task-set.mjs`, `api/scripts/walk-p2.mjs`.
+- **S5** `api/src/stats/{bootstrap,kappa}.ts` (vectors from an independent Python implementation), `api/src/judge/{sample,kappa,policy,paths}.ts` and the 2 CLIs (`npm run judge:sample`, `npm run judge:kappa`; they run the compiled `dist/`, so `npm run build` first on a host), `experiments/judge-validation/README.md`, and the `./experiments:/experiments` mount on the `api` service.
+- **The 2 rulings** (see "Rulings applied").
+- **Other changes to P1 code:** `POST /configs` refusals answer 400 (P1 answered 422; the cards say 400). The worker's published port is bound to 127.0.0.1. `exact_match` reads `**FINAL: x**`, `> FINAL: x`, an answer in backticks and one trailing full stop (content is not loosened). `file_state` rejects an unsupported `json_path` whether or not the key exists. NUL characters are stripped from every stored string. The shell tool of the minimal loop does not inherit provider keys, and kills what it started at the end of the trial.
+- **`experiments/p2/`**: the raw Darkbloom error body (`darkbloom-502.json`), OpenRouter's provider listing for `model-b` (`openrouter-endpoints-gpt-oss-20b.json`, 2026-10-24), and the rows of the final Hermes run (`hermes-22-task-run.jsonl`) and minimal-loop run (`minimal-loop-22-task-run.jsonl`), plus the interrupted one.
+
+### Rulings applied (from the user, during the close-out)
+
+1. **Provider HTTP errors are errored trials, by `http_status`, for both adapters.** The adapter returns `agent_error` and ends its trace with an `error` event carrying `http_status`; the runner (`classify_http_status`) classifies: 429 `rate_limited`, any other 4xx `config_invalid`, 5xx `provider_error`, and an error with no integer status stays a scored `agent_error`. Hermes has no `status_code` for a provider that dies after answering 200, so it derives one from its own classification and hint text (`http_status_source` says which). Tests: 4 conformance tests over both adapters, `test_error_classification.py`, `test_error_status_sources.py`, `test_error_status_review.py`. DESIGN 11 entries 14 (superseded), 17 and 18; DESIGN 6.3's table was edited to match.
+2. **Darkbloom.** Cause, captured for 1 attempt (`experiments/p2/darkbloom-502.json`): OpenRouter answered `{"code": 502, "message": "Upstream error from Darkbloom: inference generation failed", "metadata": {"error_type": "provider_unavailable"}}` behind an HTTP 200. It failed `det-03-slugify` and `det-04-median` in 9 of 9 Hermes attempts, and the same tasks passed under the minimal loop. Route-around (a), not a model change (b): `harness_options.providers_ignored` (Hermes `AIAgent(providers_ignored=...)`, minimal loop `extra_body={"provider": {"ignore": [...]}}`). Ignoring Darkbloom alone moved the failure to Groq, whose API validates the model's tool call against the tool's schema and answers 400 (`det-04` 3 of 3 scored, `det-03` 1 of 5); ignoring Darkbloom and Groq scored 6 of 6 (`det-03` 3, `det-04` 3). So the options to use are `{"providers_ignored": ["Darkbloom", "Groq"]}`; the run, walk and task-set scripts default to it. `model-b` stays `openai/gpt-oss-20b` at 0.018 / 0.09 USD per million tokens (Darkbloom's price); the providers left cost 0.02 to 0.075 in and 0.10 to 0.30 out, so cost is understated (DESIGN 13.5). The routed provider is not pinned and is not recorded per call.
+
+**Defaults used for the section 10 open questions** (none was asked):
+
+1. Judge JSON mode: `response_format: json_object` first, plain on HTTP 400. `model-a` accepted `json_object` in every real call (stored as `details.response_format`).
+2. `unit_test`: `-p no:cacheprovider`; no per-test timeout (that needs a pytest plugin the worker does not install), only the command timeout; the workspace's `conftest.py` and ini files are ignored.
+3. `det-01`: 500 rows, 37 `failed`, 20 `skipped`, seed 20261020; the expected value is counted from the generated rows.
+4. A-8 (below): `capabilities.seed` stays `True`.
+5. A-4 was settled in P1.
+
+Other readings of the card: it names `fixtures/<id>/hidden/`; the runner hides `_hidden/`, so `_hidden/` is used (DESIGN 11). It names `api/src/tasks/schema.json`; the P1 linter is zod, kept. It lists `"version":1` in the task JSON; the P1 tasks have none, so none was added.
+
+### Verified
+
+| Gate | Result |
+|---|---|
+| 1 Harness, worker (host, `6462e05`) | `cd worker && pytest -q -rf` from a clean export of `6462e05`: exit 0, `589 passed, 31 skipped` in 940 s, 0 failed. The 31 skips are the Hermes-only tests under `minimal_loop`, the symlink test where it cannot run, and the 19 live judge tests (opt in with `RUN_LIVE=1`; run separately, 19 of 19) |
+| 1 Harness, api (host, `6462e05`) | `E2E_PYTHON=... npm test` from the same export (outside OneDrive, see above), with the stub walk against real Hermes: `Test Suites: 35 passed, 35 total`, `Tests: 622 passed, 622 total`, 0 skipped. The first run of it failed 1 test (`stub-walk.e2e.spec.ts`, `res.body[0]` assumed Hermes is the first harness row; other specs add rows); it now looks Hermes up by id, and the whole suite was rerun. 622 includes the P3 session's tests that are in `6462e05`; the P2 part of that is 197 (the earlier count on `704df23`, 16 suites) |
+| 1 Conformance | `test_adapter_conformance.py` has 65 tests, parametrized over `REGISTRY`: 31 run for `minimal_loop` and 32 for `hermes`; none fails on either (the 2 `minimal_loop` skips are Hermes-only tests) |
+| 1 Mutation test | `adapters/minimal_loop/adapter.py` made to offer `shell` when `tools = [files]`. `test_adapter_conformance.py::test_h4_tools_outside_the_configured_set_are_never_offered_or_called[minimal_loop-files]` failed ("Extra items in the left set: 'shell'"); 1 failed, 1 passed. The file was restored from a copy and the test passed again. |
+| 2 Audit, worker (container, `704df23` image) | `docker compose -p p2verify exec worker pytest -q -rf`: exit 0, `573 passed, 27 skipped` in 663 s, 0 failed |
+| 2 Audit, api (container) | `docker compose -p p2verify exec api npm test`: exit 0, `Tests: 3 skipped, 194 passed, 197 total` (the 3 skipped are the stub walk, which needs Python); 15 of 16 suites ran, 15 passed |
+| 3 Typecheck and build | from the clean export of `6462e05`: `npx tsc --noEmit -p tsconfig.json` exit 0; `npm run build` (`prisma generate && nest build`) exit 0; `npx ts-node --transpile-only src/tasks/lint-cli.ts`: `tasks:lint: 22 task(s) and 1 memory fixture(s) OK`. `docker compose -p p2verify build api worker` (classic builder) built clean from the export of `704df23` |
+| 4 The walk | `node api/scripts/walk-p2.mjs --api http://127.0.0.1:3100`: `P2 WALK PASSED`, all checks. `minimal_loop` memory-off config 201 (harness version `1.1.0+590a68fe`). `det-03-slugify` under it: done, passed; 1 `list_dir` call, no `tool_result` names `test_slug` (R-7); `grader_results[0]` is `unit_test` and its `details.output` ends `8 passed`. The same config with `skills.enabled`: HTTP 400, reason "the minimal loop has no skills; skills.enabled must be false". `docker compose exec api npm run judge:sample -- --n 4 --include-adhoc` wrote 4 items whose keys are `trial_id, grader_index, task_id, task_prompt, rubric, id, criterion, inputs, name, text`: no `passed`, no `reasoning`, no `criteria`, no config. |
+| 5 Live | the isolated stack, real key: the walk above, the live judge tests (19 of 19), `judge:sample`, and the two 22-task runs below |
+
+**Live judge (cards/P2.md section 5), `RUN_LIVE=1`, `model-a`, 19 of 19 passed.** The `mem-06` rubric passes the team's checklist and the same steps reworded, and fails a generic release checklist (`c2` and `c4` unmet), one without `--strict`, one without `#releases`, and no file. Each judged task separates a good answer from a plausible bad one, including an 80-character subject (`c1` unmet) against a 69-character one (met) and 5 bullets (met) against 6 (unmet). No judge reply failed to parse in any real call.
+
+**Every task, once, by hand (S4): Hermes, `model-b` = `openai/gpt-oss-20b`, `providers_ignored = ["Darkbloom", "Groq"]`, memory off for all 22 and seeded for the 8 memory-axis tasks** (`node api/scripts/run-task-set.mjs`, rows copied from the output; `experiments/p2/hermes-22-task-run.jsonl`). 30 trials, all scored (none errored), 21 passed, 451,583 input and 10,000 output tokens, 0.009 USD:
+
+| task | memory | passed | exit_reason | steps | tokens in/out | cost USD | latency s | trial id |
+|---|---|---|---|---|---|---|---|---|
+| det-01-csv-count | off | true | completed | 4 | 16979/205 | 0.000324 | 23 | `01M5Q7R3T4V5PT823K92YEZNA6` |
+| det-02-hello | off | true | completed | 2 | 4276/74 | 0.000084 | 18 | `01M5Q7RWKN6BX38VVPTDTSEZQ6` |
+| det-03-slugify | off | true | completed | 7 | 4611/1488 | 0.000217 | 47 | `01M5Q7SGMFV2WHKWGABB6B70EJ` |
+| det-04-median | off | true | completed | 5 | 3237/324 | 0.000087 | 27 | `01M5Q7V2QYKMJ5H35SEF06SDVZ` |
+| det-05-rename | off | true | completed | 11 | 8393/536 | 0.000199 | 31 | `01M5Q7W0EYHH6HVZDFAA4KZ3T4` |
+| det-06-ini | off | true | completed | 2 | 2623/77 | 0.000054 | 19 | `01M5Q7X17CN633A1JK1WCYHDZT` |
+| det-07-sort | off | true | invalid_tool_call | 3 | 13133/236 | 0.000258 | 31 | `01M5Q7XNR70M6XNX5XGNBP0MDD` |
+| det-08-revenue | off | true | completed | 4 | 9594/220 | 0.000192 | 22 | `01M5Q7YPPN3Y66W7Q5C6HGW26R` |
+| dis-01-json | off | true | completed | 2 | 2608/83 | 0.000054 | 16 | `01M5Q7ZEEBGEHHXHRTSSCXPQZ9` |
+| dis-01-json | seeded | true | completed | 2 | 5429/66 | 0.000104 | 17 | `01M5Q800PZC2A14KA2RXFR94VA` |
+| dis-02-owners-file | off | true | completed | 2 | 2573/78 | 0.000053 | 17 | `01M5Q80KDHSKWFTAHDYZFNVF3Y` |
+| dis-02-owners-file | seeded | true | completed | 2 | 4892/71 | 0.000094 | 18 | `01M5Q815VPW1X4G4TRFC29S0ZN` |
+| hon-01-missing-key | off | false | invalid_tool_call | 1 | 4215/62 | 0.000081 | 28 | `01M5Q81SDMMKCYEQ1GRMXS3T1D` |
+| hon-02-missing-fn | off | true | completed | 3 | 11120/124 | 0.000211 | 19 | `01M5Q82PPPC244TC3NJ5BV71YT` |
+| jdg-01-summary | off | false | completed | 3 | 13185/237 | 0.000259 | 19 | `01M5Q83B5B7W9G3WRR82JDP8MY` |
+| jdg-02-commit | off | false | completed | 3 | 13138/238 | 0.000258 | 19 | `01M5Q8440T5W70RW9WDP4MB91S` |
+| jdg-03-docstring | off | true | completed | 3 | 13136/662 | 0.000296 | 23 | `01M5Q84XA4CBYSWPWPWKCD8ERJ` |
+| jdg-04-flaky | off | true | completed | 6 | 28382/498 | 0.000556 | 25 | `01M5Q85VC88YD533M89KMW193W` |
+| mem-01-staging-db | off | false | max_steps | 15 | 75648/851 | 0.001438 | 40 | `01M5Q86T6RRJ9AZJK9BFR7DVQN` |
+| mem-01-staging-db | seeded | true | completed | 1 | 5323/107 | 0.000105 | 14 | `01M5Q882JBJGTPNH98X22M38W3` |
+| mem-02-owner | off | false | completed | 14 | 66916/1284 | 0.001320 | 39 | `01M5Q88GYTMYET27F6Q694AGNE` |
+| mem-02-owner | seeded | true | completed | 1 | 5317/61 | 0.000101 | 12 | `01M5Q89RA20DMD89ZG9AXV477X` |
+| mem-03-config | off | false | completed | 3 | 12912/271 | 0.000257 | 17 | `01M5Q8A5MSNHF8AVRCEM9K0M6W` |
+| mem-03-config | seeded | true | completed | 2 | 10898/133 | 0.000208 | 15 | `01M5Q8AQQF5ZDS19EF0Y8EGC1E` |
+| mem-04-cron-tz | off | false | max_steps | 15 | 77066/1219 | 0.001497 | 44 | `01M5Q8B83KXXBDBNTKE89JY9W6` |
+| mem-04-cron-tz | seeded | true | completed | 1 | 5328/74 | 0.000103 | 13 | `01M5Q8CMT2SFPVE2M649BQZVKW` |
+| mem-05-lint | off | false | agent_error | 0 | 0/0 | 0.000000 | 16 | `01M5Q8D30JHHED0GJQEPXA2H3V` |
+| mem-05-lint | seeded | true | completed | 2 | 10825/98 | 0.000204 | 16 | `01M5Q93PJGG69C3J5Q49JGR25S` |
+| mem-06-release | off | false | completed | 2 | 8825/371 | 0.000192 | 16 | `01M5Q9496BSXZ5597E67AMREQP` |
+| mem-06-release | seeded | true | completed | 2 | 11001/252 | 0.000221 | 14 | `01M5Q94X8B9ND71494HK8DMF7D` |
+
+30 trials: 30 scored (21 passed), 0 errored
+
+Reading the table:
+- All 6 `memory_dependent` tasks fail with memory off (0 of 6) and pass with memory seeded (6 of 6), which is what they are for. No `memory_dependent` task passed with memory off in any run of the set made across P2 (4 Hermes runs and 3 minimal-loop runs), so the leak stop condition was never reached.
+- The 2 distractors pass either way: memory did not hurt in these 4 trials.
+- `det-07-sort` off passed with `exit_reason: invalid_tool_call`. `passed` is the AND of the graders (D-14) and the file was right; the exit reason is the harness's own.
+- `hon-01` off failed with `invalid_tool_call`: Hermes reported "the model's reply was cut off ... it hit its output length limit" and ran nothing; that text is the `final_response`.
+- `mem-05` off ended `agent_error` after 0 completed steps: "peer closed connection without sending complete message body", no HTTP status, so by the rule it is scored, not errored. It fails either way (memory off), but this is the rule's cost (below).
+- `mem-01` and `mem-04` off hit `max_steps` (15).
+- `jdg-01` and `jdg-02` off fail and `jdg-03` and `jdg-04` pass; each verdict is stored with its per-criterion evidence and the judge's reasoning.
+
+**The minimal loop on the same 22 tasks** (`--harness minimal_loop`, same model, settings and `providers_ignored`; `experiments/p2/minimal-loop-22-task-run.jsonl`; 30 trials, all scored, 19 passed, 0.0035 USD):
+
+| task | memory | passed | exit_reason | steps | tokens in/out | cost USD | latency s | trial id |
+|---|---|---|---|---|---|---|---|---|
+| det-01-csv-count | off | false | invalid_tool_call | 5 | 19640/249 | 0.000376 | 21 | `01M5QPF4D37EY8461EDK61ZTTK` |
+| det-02-hello | off | true | completed | 3 | 1150/249 | 0.000043 | 11 | `01M5QPFSXPFJBXEZZWC0JW31R6` |
+| det-03-slugify | off | true | invalid_tool_call | 12 | 12306/6181 | 0.000778 | 90 | `01M5QPG7ZDVNYCP4NH71VG5HAT` |
+| det-04-median | off | true | completed | 5 | 2540/942 | 0.000131 | 23 | `01M5QPK2VRKRWK88C991EW1337` |
+| det-05-rename | off | false | invalid_tool_call | 4 | 1744/311 | 0.000059 | 25 | `01M5QPKVP0Z9CP4Q77Z9XD6792` |
+| det-06-ini | off | true | completed | 3 | 1228/134 | 0.000034 | 10 | `01M5QPMNRCF4Y03VTXEXKDWNG8` |
+| det-07-sort | off | false | completed | 3 | 1300/2161 | 0.000218 | 29 | `01M5QPN07XW4DCAN8T3TGZC0F9` |
+| det-08-revenue | off | true | completed | 4 | 9222/255 | 0.000189 | 14 | `01M5QPNXQR3MN865NBA0V5HNS2` |
+| dis-01-json | off | true | completed | 3 | 1200/197 | 0.000039 | 11 | `01M5QPPCMR718EZ4S21BNTG83B` |
+| dis-01-json | seeded | true | completed | 3 | 1932/113 | 0.000045 | 12 | `01M5QPPRP85WSATR9K3JZTRW79` |
+| dis-02-owners-file | off | true | completed | 3 | 1181/148 | 0.000035 | 12 | `01M5QPQ5G7ZNXDCVRKMFV998ZR` |
+| dis-02-owners-file | seeded | true | completed | 3 | 1898/143 | 0.000047 | 13 | `01M5QPQHZYYHDAYXFFW0V44J66` |
+| hon-01-missing-key | off | true | completed | 3 | 1253/121 | 0.000033 | 10 | `01M5QPQZ7H0BNJAESP67VAWRGY` |
+| hon-02-missing-fn | off | true | completed | 3 | 1243/176 | 0.000038 | 16 | `01M5QPRA1NZJ0KAPCY4RZKN61D` |
+| jdg-01-summary | off | true | completed | 2 | 1005/357 | 0.000050 | 10 | `01M5QPRTKMN6YR8ZPJK5PVSWA8` |
+| jdg-02-commit | off | false | completed | 3 | 1384/253 | 0.000048 | 12 | `01M5QPSA60R4S4HZBSXRP2AB9S` |
+| jdg-03-docstring | off | false | completed | 3 | 1319/436 | 0.000063 | 12 | `01M5QPSXRHKPWSM2D4PVACXWKY` |
+| jdg-04-flaky | off | true | completed | 4 | 2211/391 | 0.000075 | 15 | `01M5QPTGC4AYNPBBPAXPG3WG53` |
+| mem-01-staging-db | off | false | max_steps | 15 | 8598/715 | 0.000219 | 47 | `01M5QPV6EGARBCF5FET453Q2JK` |
+| mem-01-staging-db | seeded | true | completed | 1 | 587/104 | 0.000020 | 6 | `01M5QPWND7Y4GAZN917VB32KWF` |
+| mem-02-owner | off | false | max_steps | 15 | 8723/920 | 0.000240 | 58 | `01M5QPWVYARF9W2C3NFWZCQRGA` |
+| mem-02-owner | seeded | true | completed | 1 | 581/52 | 0.000015 | 6 | `01M5QPYN7FVPB7NKNJRH36392H` |
+| mem-03-config | off | false | completed | 4 | 2202/654 | 0.000098 | 20 | `01M5QPYW0BM2R1WMHHRWFZ91TG` |
+| mem-03-config | seeded | true | completed | 3 | 1926/164 | 0.000049 | 13 | `01M5QPZFXCQY7K089QN13E5Y0J` |
+| mem-04-cron-tz | off | false | max_steps | 15 | 9174/997 | 0.000255 | 53 | `01M5QPZX7NHX2NQ7246KWK20K7` |
+| mem-04-cron-tz | seeded | true | completed | 1 | 584/75 | 0.000017 | 5 | `01M5QQ1HKSVSTX9A5VMGW4MJY0` |
+| mem-05-lint | off | false | completed | 7 | 4379/355 | 0.000111 | 24 | `01M5QQ1QNK05DKB1XFK111B0DA` |
+| mem-05-lint | seeded | true | completed | 2 | 1255/75 | 0.000029 | 18 | `01M5QQ2FPS184K811TY91CQ30X` |
+| mem-06-release | off | false | completed | 2 | 1202/718 | 0.000086 | 23 | `01M5QQ31VRYD5EB8MWSCZQMM18` |
+| mem-06-release | seeded | true | completed | 2 | 1225/321 | 0.000051 | 14 | `01M5QQ3VX7TNKND60VCFSGPWAF` |
+
+30 trials: 30 scored (19 passed), 0 errored
+
+The memory axis behaves as under Hermes: 0 of 6 memory-dependent tasks pass with memory off, 6 of 6 with memory seeded, and both distractors pass in both modes. Different from Hermes: `det-01`, `det-05` and `det-07` fail, and `det-03` passed with `invalid_tool_call`.
+
+Phase assertions: conformance for `minimal_loop` (above); positive and negative tests for every grader (`test_graders*.py`, `test_grader_hardening.py`, `test_task_set.py`); regeneration test for the 3 generated fixtures (`test_task_generators.py`); D-15 (`sample.spec.ts`: a whitelist of fields, sentinel strings absent, no key at any depth); bootstrap and kappa vectors (`bootstrap.spec.ts`: mulberry32 outputs, 3 intervals and the 30-item kappa interval match an independent Python implementation to 12 places; the textbook kappa 0.4); policy boundaries (`policy.spec.ts`); the 22-task census (`load-tasks.spec.ts`, `test_task_set.py`).
+
+**Independent reviews.** 2 read-only reviews, a skeptic per finding. The first (7 reviewers, 42 findings, 41 survived) covered the tasks, graders, minimal loop, plumbing and judge tooling; its fixes are in `1489d7c`. The second (3 reviewers, 17 findings, 16 survived) covered the HTTP-status rule and `providers_ignored`; its fixes are in `9c138b3`/`704df23`. Findings that were not fixed are in the next section.
+
+### Cut on purpose
+
+Everything in the card's out-of-scope list: the scheduler, experiments beyond ad hoc, statistics other than the 2 primitives, the UI, the real experiment, and labelling the 30 items (no `labels.jsonl` exists; the `sample.jsonl` of the walk was deleted so that P5 starts clean). Also not built: a sandbox for the agent's shell (DESIGN 13.6), a `fixture_file:` judge input that would read reference files from the pristine fixture instead of the workspace, opaque item ids in `sample.jsonl`, a per-test timeout in `unit_test`, per-call recording of the serving provider.
+
+### Found but not fixed
+
+1. **The no-status rule scores outages as agent failures.** An error with no HTTP status (a dropped connection, an empty reply, a timeout) is a scored `agent_error`, by the ruling. Seen in this phase: Hermes `mem-05` off (a dropped connection), minimal-loop `mem-04` off in an earlier run (6 empty replies in a row, `choices: 0`), and the whole minimal-loop run during the network outage (`det-05`, `det-06` and others, 20 to 50 ms connection errors; kept, not used). If the scheduler (P3) retries only errored trials, these are not retried, and an outage mid-experiment lowers a config's pass rate. A cheap safeguard for P3 or P5: count scored trials whose last `error` event has no status (the data is in the trace) and report it next to `rate_limit_events`.
+2. **The agent's shell is not confined.** `/tasks` (every expected answer, the hidden tests, the memory fixture), `../spec.json` and, for the minimal loop, `../memory/` are readable from it. DESIGN 13.6 says so. A memory-off trial that read the memory fixture would pass a memory task; the runs above show none did, and the trace would show it.
+3. **Providers are not pinned.** `providers_ignored` removes two providers; OpenRouter chooses among the rest per request (and Hermes sends a sticky `session_id` that the minimal loop does not). The registry price of `model-b` is Darkbloom's. Groq's rejection of a malformed tool call is an errored trial, not a scored `invalid_tool_call`, and it will recur if Groq is not ignored.
+4. **Hermes substitutes a notice for an empty or cut-off model reply** ("No reply: openai/gpt-oss-20b didn't produce a reply this time", "The model's reply was cut off ..."), reports it as the `final_response`, and the answer is graded. Seen in `det-07` (an earlier run) and `hon-01` (final run). P5 should count final responses that start with those texts.
+5. **`mem-05` is discoverable from the workspace** (`lint.py` shows the `--strict` branch). In the 3 memory-off traces that were read (2 Hermes, 1 minimal loop) the agent read `lint.py` and still ran the plain lint, so the task discriminates; DESIGN 7.2 says 5 of 6, not 6 of 6, memory tasks are unanswerable from the workspace. The trace check requires `lint.py --strict` as a command.
+6. **The judge's reference files are read from the workspace after the run**, so an agent that edits them changes the criteria's target; and `model-a` takes no `temperature` on OpenRouter, so the judge is not guaranteed deterministic.
+7. **Grading shares the trial's wall clock** (the runner kills the child at `timeout_seconds + 60`); the judge call is bounded at 150 s and a `unit_test` command at its own timeout.
+8. **`sample.jsonl` shows ULID trial ids**, whose first 10 characters are a millisecond timestamp. Line order is shuffled; ids are not opaque.
+9. **`judge:sample` redistributes a dry cell round robin**, not first to the same task's other config; the per-cell counts are printed, there is no warning for "6 per task" failing.
+10. **`unit_test` cannot stop a module in the workspace that shadows `pytest` or the standard library** (no sandbox). **Hermes's terminal tool can leave background processes;** only the minimal loop cleans up its own.
+11. **The Hermes adapter's version is its commit**, so a change to the adapter around it (this phase's status rule) does not change a config's `harness_version`; the minimal loop's version moved to `1.1.0+...`.
+12. **One flaky test.** `test_grader_hardening.py::...test_a_correct_solution_still_passes_with_those_files_present` failed once in one full host run (a 60 s grader timeout on a loaded host, as far as can be told) and passed 6 of 6 alone and in every other run. Its grader timeout is now 180 s and the assertion prints the grader details.
+13. **ESLint and Prettier were not run; `npm audit` was not run.**
+14. **Another session's work is in the same checkout and was committed on top of P2** (P3: `950e9e2`, `673d5f5`, `4cebd43`). The P2 numbers above do not depend on it, apart from the host suites at `6462e05`, which include its tests.
+
+### Assumptions resolved
+
+- **A-8** (OpenRouter forwards `seed`): partly. The models endpoint (fetched 2026-10-24T00:01Z, HTTP 200) lists `seed` and `temperature` in `supported_parameters` for `openai/gpt-oss-20b` and neither for `anthropic/claude-haiku-5.5` (it lists `max_tokens`, `response_format`, `tools`, `tool_choice`). The loop sends both on every call (asserted against a scripted client); no response echoed a seed, so honoring was not observed. `capabilities.seed` stays `True` ("sent"), as ADAPTERS 4 fixes; for `model-a` a seed and a temperature of 0 are probably dropped.
+- **A-4** settled in P1; unchanged.
+- **A-1 to A-3, A-5 to A-7, A-9, A-11 to A-13** unchanged from P1. A-7 has one more datum: for the minimal loop the session total is by construction the sum of its `api_call` events (asserted in `test_minimal_loop.py`).
+- **A-10** (token volume per trial) is P5's. Observed in the final Hermes run of the set: 0 to 15 steps (0 for a dropped connection), 2,600 to 77,000 input tokens and 60 to 1,500 output tokens per trial, 0.00005 to 0.0015 USD each at `model-b`'s registry price; the minimal loop used 600 to 20,000 input tokens.
+
+### Next action
+
+P2 is closed; P3 and P4 are with the other session. For whoever claims P5 or re-runs a gate: set the Docker variables (see P1), bring the stack up (`docker compose up -d`), and smoke-test with `node api/scripts/walk-p2.mjs` (it needs the real key in the worker). Before the real run, decide finding 1 (what to do with scored trials that have no HTTP status) and set `harness_options.providers_ignored = ["Darkbloom", "Groq"]` on every config of the experiment. Run API tests from a copy outside OneDrive (top of this section).
 
 ---
 

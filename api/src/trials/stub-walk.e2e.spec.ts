@@ -125,7 +125,7 @@ run('gate-4 walk against the real worker and Hermes, with the stub model server'
   it('records the worker manifest at boot', async () => {
     const res = await http.get('/harnesses');
     expect(res.body.map((h: { id: string }) => h.id)).toContain('hermes');
-    expect(res.body[0].capabilities.tools).toEqual(['files', 'shell']);
+    expect(res.body.find((h: { id: string }) => h.id === 'hermes').capabilities.tools).toEqual(['files', 'shell']); // not body[0]: other specs add harness rows
   });
 
   it('det-06-ini: POST /configs is 201 then 200, and the trial passes with a full trace', async () => {
