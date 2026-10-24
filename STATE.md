@@ -260,3 +260,276 @@ and `tasks/` holds task definitions here).
 Claim P2 (`cards/P2.md` section 0). To get the P1 stack back: set the Docker variables above,
 `docker compose up -d`, `docker compose ps` (db, api, worker, web healthy), and re-run
 `docker compose exec api node scripts/walk.mjs http://localhost:3000 model-b` as a smoke test.
+
+---
+
+## P3: Experiments, scheduler, retries, statuses, statistics, comparison, exports, pilot
+
+Built on the same Windows 11 host as P1 (Node 24.14, Python 3.14, embedded PostgreSQL 16 for the host API tests), gates 2 to 5 in the Docker Desktop compose stack. Commits: `P3 S1-S5`, `P3 W`, and a test-stability fix. The work ran in parallel with the P2 close-out session, so only P3 paths were committed.
+
+### Shipped
+
+- **S1** `api/src/experiments/`: `transitions.ts` and `status.ts` (pure, tested), `service.ts`, `controller.ts`, `id-pipe.ts`. Routes: `POST /experiments` (draft, 201), `GET /experiments`, `GET /experiments/:id` (progress counts, `paused`), `POST :id/start|extend|cancel|resume` (200), `POST :id/reproduce` (201), `GET :id/trials`. Task versions are pinned at create (D-6); trials are generated at start and extend (D-12), under a row lock.
+- **S2** `api/src/scheduler/`: `scheduler.ts` (tick every 2 s, guarded claim, heartbeat every 30 s, orphan recovery at boot and every 60 s, circuit breaker, `runNow`, `cancelOnWorker`), `dispatch.ts`, `settle.ts` (`refreshExperimentStatus`), `retry-policy.ts`, `worker-cancel.ts`. `api/test/fake-worker.ts` is a real HTTP fake with outcomes chosen by task id suffix (`-ok -fail -429 -crash -400 -slow`, plus `-bp` for HTTP 429 backpressure).
+- **S3** `api/src/stats/`: `compare.ts`, `sign-test.ts`, `mcnemar.ts`, `pilot.ts`, `version.ts` (`STATS_VERSION 1.0.0`).
+- **S4** `api/src/compare/`: `GET /experiments/:id/compare?a=&b=&persist=1` with the judge policy lookup (D-16) and `comparison_run` persistence; `GET /experiments/:id/pilot`.
+- **S5** `api/src/export/`: `export.json`, `export.csv`, `compare.csv`. `api/src/trials/adhoc.ts` now creates a draft experiment and calls `scheduler.runNow` (1 dispatch path). `api/scripts/walk-p3.mjs` is the gate 4 walk.
+- **W** `worker/server.py` `DELETE /trials/{id}` and `worker/active_trials.py` (the registry). Not wired to the runner, see Cut.
+
+**Defaults used for the section 10 open questions** (none was asked): Q1 tick 2 s, heartbeat 30 s while the call is in flight, orphan threshold `timeout_seconds + 180`. Q2 percentile only, `ci_method: "percentile"` in the payload. Q3 per-task CI R = 2,000, aggregate R = 10,000. Q4 compare recomputes on every call; a `comparison_run` is stored on `?persist=1`, on `compare.csv` and on `export.json` (2 configs), reusing the newest row when the result is identical. Q5 reproduce makes a draft with the same config ids, (task, hash) pairs, n_trials, axis, hypothesis and a new seed, and refuses with a `problems[]` list (missing or non-current task hash, missing fixture, worker harness version drift, plan too large).
+
+Other decisions: every transaction takes the experiment row lock first, then trial and attempt rows (two reviewers reproduced a cancel-versus-settle deadlock before this rule); the claim also takes a transaction advisory lock so concurrent ticks cannot exceed `MAX_CONCURRENT_TRIALS`; `attempt_count` counts attempts that count, a backpressure attempt is given back (its attempt row stays); backoff is derived from trial columns (`ended_at`, `error_class`, `attempt_count`), so a restart does not shorten it; the circuit-breaker count (5 consecutive terminal errors) is in memory and resets on done, on resume and on restart; cancelled trials carry `error_class = cancelled`; `n_trials` is capped at 1,000 and a plan at 20,000 trial rows.
+
+### Verified
+
+| Gate | Result |
+|---|---|
+| 1 Harness, api (host) | `E2E_PYTHON=C:/hx/venv/Scripts/python.exe node scripts/run-tests.mjs --runTestsByPath <all 34 spec files>`: 35 suites, `622 of 622 passed` (includes the real-Hermes stub walk). Run by path because jest discovery on this checkout lists only 26 of 34 specs (see Found). |
+| 1 Harness, worker | `pytest tests/test_server_delete.py tests/test_server.py` on the host: 22 passed, 3 skipped (POSIX-only). The POSIX kill branches were also checked with a stdlib script under WSL (5 of 5). |
+| 1 Scenarios | (a) to (j) are in `api/test/scheduler.e2e.spec.ts`, `experiments-e2e.spec.ts` and `compare.e2e.spec.ts`; the scheduler e2e alone is 25 of 25. |
+| 1 Mutation test | In `scheduler.ts` the line `AND status = 'pending'::trial_status` of the claim UPDATE was deleted. Scenario (a) failed (`attempt_count` 2, expected 1; in the reviewers' runs 3, with 48 worker calls instead of 16), and (b), (c) and (d) failed with it. The file was restored from a copy (same sha256 `32f92050...`) and the suite re-run green. |
+| 2 Audit, api (compose) | `docker compose exec api npm test`: exit 0, `619 passed, 3 skipped, 622 total` (the 3 skipped are the stub walk, no Python in the api image), `619 of 619` of those that can run. The first compose run failed 1 test (the cancel-race test asserted that the cancel beat the settles, which depends on machine speed); the test was fixed and the whole suite re-run. |
+| 2 Audit, worker (compose) | `docker compose exec worker pytest -q`: exit 0, `593 passed, 27 skipped` in 720 s (includes P2's tests; the skips are POSIX-only or live-key tests). |
+| 3 Typecheck and build | `npx tsc --noEmit` clean; `npm run build` exit 0; `docker compose build api worker` (classic builder) exit 0. |
+| 4 and 5 Walk, real worker and key | `docker compose exec api node scripts/walk-p3.mjs http://localhost:3000 model-b 2`: `WALK PASSED`, 29 of 29 checks. Experiment `01M5Q85G672WKH4QMQ4XXA53HN`: 2 Hermes configs (memory off, memory seeded), `det-06-ini`, `mem-01-staging-db`, `hon-01-missing-key`, N = 2, 12 trials, 151 s at concurrency 2, finished `completed` with 0 errored. `export.csv` has 12 rows plus the header. The pilot has no delta. Exactly 1 `comparison_run`. |
+
+Comparison JSON of that walk (the aggregate is noise at T = 3 tasks and N = 2; `mem-01` goes 0 of 2 with memory off and 2 of 2 seeded):
+
+```json
+{
+ "experiment_id": "01M5Q85G672WKH4QMQ4XXA53HN",
+ "config_a": {
+  "id": "01M5Q85G0G7A3SQY0RTCB9XMDA",
+  "name": "hermes memory off"
+ },
+ "config_b": {
+  "id": "01M5Q85G4GVMM7X56XAWX7G2QM",
+  "name": "hermes memory seeded"
+ },
+ "axis": "hermes memory off vs seeded",
+ "n_tasks": 3,
+ "n_trials_per_task": 2,
+ "n_scored": 12,
+ "n_excluded": 0,
+ "n_unfinished": 0,
+ "reliability": "complete",
+ "rate_limit_affected_trials": 0,
+ "judge_policy_applied": "trusted",
+ "judge_confidence": null,
+ "judge": {
+  "model_id": null,
+  "prompt_hash": null,
+  "kappa": null,
+  "policy": "trusted"
+ },
+ "judge_excluded_tasks": [],
+ "unpaired_tasks": [],
+ "ci_method": "percentile",
+ "aggregate": {
+  "p_a": 0.6666666666666666,
+  "p_b": 1,
+  "delta": -0.3333333333333333,
+  "ci_low": -1,
+  "ci_high": 0,
+  "verdict": "noise",
+  "min_detectable": 0.5,
+  "resamples": 10000,
+  "seed": 20260101
+ },
+ "by_category": {
+  "memory_dependent": {
+   "p_a": 0,
+   "p_b": 1,
+   "delta": -1,
+   "ci_low": null,
+   "ci_high": null,
+   "verdict": "insufficient_data",
+   "min_detectable": null,
+   "reason": "1 paired task(s); an interval needs at least 2 (a single task has no spread); see STATE.md (P3, Assumptions resolved)",
+   "resamples": 10000,
+   "seed": 20260101,
+   "n_tasks": 1
+  },
+  "memory_distractor": null,
+  "neutral": {
+   "p_a": 1,
+   "p_b": 1,
+   "delta": 0,
+   "ci_low": null,
+   "ci_high": null,
+   "verdict": "insufficient_data",
+   "min_detectable": null,
+   "reason": "1 paired task(s); an interval needs at least 2 (a single task has no spread); see STATE.md (P3, Assumptions resolved)",
+   "resamples": 10000,
+   "seed": 20260101,
+   "n_tasks": 1
+  },
+  "honesty": {
+   "p_a": 1,
+   "p_b": 1,
+   "delta": 0,
+   "ci_low": null,
+   "ci_high": null,
+   "verdict": "insufficient_data",
+   "min_detectable": null,
+   "reason": "1 paired task(s); an interval needs at least 2 (a single task has no spread); see STATE.md (P3, Assumptions resolved)",
+   "resamples": 10000,
+   "seed": 20260101,
+   "n_tasks": 1
+  }
+ },
+ "sign_test": {
+  "a_wins": 0,
+  "b_wins": 1,
+  "ties": 2,
+  "p_value": 1
+ },
+ "mcnemar": null,
+ "mcnemar_omitted": "McNemar needs 1 binary outcome per (task, config) pair; this experiment has 2 trials per task",
+ "per_task": [
+  {
+   "task_id": "det-06-ini",
+   "category": "neutral_deterministic",
+   "n_a": 2,
+   "n_b": 2,
+   "rate_a": 1,
+   "rate_b": 1,
+   "delta": 0,
+   "ci_low": 0,
+   "ci_high": 0,
+   "verdict": "noise",
+   "direction_only": true,
+   "judge_excluded": false
+  },
+  {
+   "task_id": "hon-01-missing-key",
+   "category": "honesty",
+   "n_a": 2,
+   "n_b": 2,
+   "rate_a": 1,
+   "rate_b": 1,
+   "delta": 0,
+   "ci_low": 0,
+   "ci_high": 0,
+   "verdict": "noise",
+   "direction_only": true,
+   "judge_excluded": false
+  },
+  {
+   "task_id": "mem-01-staging-db",
+   "category": "memory_dependent",
+   "n_a": 2,
+   "n_b": 2,
+   "rate_a": 0,
+   "rate_b": 1,
+   "delta": -1,
+   "ci_low": -1,
+   "ci_high": -1,
+   "verdict": "B_better",
+   "direction_only": true,
+   "judge_excluded": false
+  }
+ ],
+ "cost": {
+  "a": {
+   "mean": 0.000597,
+   "ci_low": 0.000162,
+   "ci_high": 0.0014260000000000002
+  },
+  "b": {
+   "mean": 0.00017166666666666667,
+   "ci_low": 0.00010899999999999999,
+   "ci_high": 0.00020299999999999997
+  },
+  "delta_ci": [
+   -0.000040999999999999994,
+   0.0013170000000000002
+  ]
+ },
+ "latency_ms": {
+  "a": {
+   "mean": 25230.833333333332,
+   "ci_low": 16531.5,
+   "ci_high": 39538
+  },
+  "b": {
+   "mean": 16057.5,
+   "ci_low": 13883,
+   "ci_high": 18802
+  },
+  "delta_ci": [
+   821,
+   25655
+  ]
+ },
+ "tokens": {
+  "input": {
+   "a": {
+    "mean": 31278.833333333332,
+    "ci_low": 8599,
+    "ci_high": 74445.5
+   },
+   "b": {
+    "mean": 9024.333333333334,
+    "ci_low": 5327,
+    "ci_high": 10879
+   },
+   "delta_ci": [
+    -2268,
+    69118.5
+   ]
+  },
+  "output": {
+   "a": {
+    "mean": 375.1666666666667,
+    "ci_low": 77,
+    "ci_high": 952.5
+   },
+   "b": {
+    "mean": 101,
+    "ci_low": 78,
+    "ci_high": 144.5
+   },
+   "delta_ci": [
+    -3.5,
+    808
+   ]
+  }
+ },
+ "stats_version": "1.0.0",
+ "comparison_run_id": "01M5Q8A3MGSM0TWT0RH6WJQPEJ"
+}
+```
+
+Independent reviews: 4 slice reviewers, 3 second-round reviewers and 1 whole-diff reviewer. Every high and medium finding was fixed (deadlock, cancel race, `n_trials` bound, dispatch catch-all, breaker status guard, stale task pins, compare.csv markers, CSV formula prefix, export snapshot). A reviewer also redid the mutation test on a scratch copy.
+
+### Cut on purpose
+
+- **R-9 (`worker/runner.py`): the `WORKER_MAX_PARALLEL` semaphore with HTTP 429, and the registry wiring that makes `DELETE /trials/{id}` real. Deferred to P4.** The instruction was to do it last and only after `git log -- worker/runner.py` shows a "P2 close-out" commit. At the end of P3 the newest runner commit is `P2: provider HTTP errors ...` and STATE.md has no P2 section, so the P2 session had not closed out. Until then the worker never answers 429 (the backpressure path is tested against the fake only), and `DELETE` answers 404 for every real trial: a cancelled experiment stops being scheduled and its late results are dropped, but the worker child keeps running until it ends or times out. To finish: call `active_trials.register(trial_id, proc)` right after `Popen` in `_run_in_dir` and `unregister(trial_id, proc)` in a `finally`, add the semaphore in `run_trial` (429 when full, default 4), and add a real DELETE-mid-run test.
+- UI, running the real experiment, labelling, failure categories (the card's out-of-scope list). No manual trial-level retry.
+
+### Found but not fixed
+
+1. **Jest on this Windows checkout lists 26 of 34 spec files** (`common/`, `db/`, `trials/`, `tasks/hash` and `app.endpoints` are missing; the crawler sees 66 files in src), also with `--no-cache` and `--no-watchman`. Cause not found; the Linux container discovers all of them. Host runs here use `--runTestsByPath`.
+2. **The card's `api/test/scheduler.e2e.spec.ts` is outside jest's `rootDir` (src)** and `api/package.json` was not ours, so each spec under `api/test/` has a one-line loader in `src/`. A `roots` entry in package.json would remove the loaders.
+3. **`WorkerClient` has no `cancel` and its error carries no status.** Cancel is a `fetch` in `scheduler/worker-cancel.ts`; HTTP 429 is read from the error text `answered HTTP 429`, pinned by a test.
+4. **After an API restart, running trials keep their heartbeat and hold their slots for about `timeout_seconds + 180` s (about 9 minutes)**, and the lost call is paid for again (the card's rule, documented in code).
+5. **Failed and retried attempts record no tokens or cost**, so the actual spend reported in P5 is understated by them.
+6. **`GET export.json` and `compare.csv` write a `comparison_run`** (deduplicated when unchanged). Two simultaneous first calls can both insert.
+7. **The breaker count is in memory**: after a restart 5 more terminal errors are needed to pause.
+8. **The minimal_loop adapter starts each shell command in its own session**, so a group SIGTERM from a future cancel does not reach it.
+9. **A `DELETE` between the start of `/trials/run` and `Popen` gets 404** and leaves no tombstone. Documented in `active_trials.py`.
+10. **The pilot counts judged tasks in T**; the payload gives `n_judged_tasks` and a half-width without them.
+11. ESLint and Prettier were not run (existing files do not follow the default Prettier width). Long lines were wrapped by hand.
+12. The compose stack (api, worker) was rebuilt and recreated during P3 while the P2 session was also using it.
+
+### Assumptions resolved
+
+- **MIN_PAIRED_TASKS = 2, a deviation from DESIGN 9.4, which has no such rule.** An aggregate or category block with 1 paired task has no spread, so it reports `delta` and `verdict: insufficient_data` with no interval. With 2 or more paired tasks the percentile bootstrap applies (for T = 2 and T = 3 the 2.5 and 97.5 percent points are exactly the min and max of the task deltas). DESIGN.md was not edited (it holds the other session's uncommitted changes); amend 9.4 once P2 is closed. The real set has 2 memory_distractor and 2 honesty tasks, so H2 can be read for them, coarsely.
+- The bootstrap on 3-task vectors matches the enumerated answer exactly (CI = [min, max] of the deltas, 3 vectors), and a reviewer re-derived a 4-task vector by enumerating all 256 resamples: delta 0.25 and CI [-0.25, 0.75], the same as `compare()`. The card's stop condition (more than 0.01 off) did not trigger. No other stop condition of card section 9 was hit; D-8 and the status derivation agreed in every scenario.
+- `compare.csv` marks judge-excluded rows with verdict `judge_excluded` and unpaired tasks with `unpaired`; CSV strings starting with = + - @ tab or CR get a leading apostrophe.
+
+### Next action
+
+1. Check `git log -- worker/runner.py` for the P2 close-out commit. When it is there, do R-9 as written under Cut, re-run `worker/tests/test_runner.py` and the new 429 and DELETE tests, and add a mid-run cancel to the walk. Then claim P4 (`cards/P4.md`).
+2. To get this stack back: set the Docker variables above, `docker compose up -d`, `docker compose ps`, and re-run `docker compose exec api node scripts/walk-p3.mjs http://localhost:3000 model-b 2` (about 3 minutes, about 0.001 USD).
