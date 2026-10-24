@@ -5,6 +5,8 @@ GET  /health
 GET  /adapters                    the manifest: every registered adapter and its capabilities
 POST /adapters/{id}/validate      body = Settings JSON; returns the reasons it cannot be honored
 POST /trials/run                  body = TrialSpec JSON; blocks until the TrialResult is ready
+DELETE /trials/{trial_id}         SIGTERM the running trial's process group (SIGKILL on a repeat or after 10 s);
+                                  200 {"cancelled": true} when a signal was delivered, else 404
 """
 import os
 import platform
@@ -13,6 +15,7 @@ from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException
 
+from worker import active_trials
 from worker.adapters.base import Capabilities
 from worker.registry import load_registry
 from worker.runner import run_trial
@@ -71,3 +74,10 @@ def run(spec: dict[str, Any] = Body(...)) -> dict[str, Any]:
     # A plain `def` endpoint: FastAPI runs it in a worker thread, so a long trial does not
     # block /health. The scheduler bounds concurrency (R-9 lands in P3).
     return run_trial(spec)
+
+
+@app.delete("/trials/{trial_id}")
+def cancel_trial(trial_id: str) -> dict[str, bool]:
+    if not active_trials.cancel(trial_id):
+        raise HTTPException(status_code=404, detail=f"no running trial {trial_id!r}")
+    return {"cancelled": True}
