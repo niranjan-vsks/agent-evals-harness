@@ -673,8 +673,13 @@ become results, not exceptions).
       `partial` (it had delivered some text before the provider gave out) is an `agent_error` with
       its status, not `invalid_tool_call`; exhausted context compression keeps the old reading.
     - The minimal loop reads the error object of a 200 body whether or not `choices` is empty, and
-      accepts a code written as a digit string; a body that is not a chat completion at all (HTML,
-      a list, invalid JSON) is a provider failure with no status and not a crash.
+      accepts a code written as a digit string. A choice whose `finish_reason` is `error` is
+      OpenRouter's marker for a failure upstream of it: with no code it counts as 502, the class and
+      nothing finer. A body that is not a chat completion at all (HTML, a list, invalid JSON), or
+      an empty `choices` list with no error object, is a provider failure with no status and not a
+      crash, and so is scored; one of the 30 minimal-loop trials of the final run of the set ended
+      that way (`mem-04-cron-tz`, memory off, 6 requests in a row, `choices: 0`), which is what the
+      no-status rule costs.
     - Adapter versions. The minimal loop's version is now `1.1.0+<prompt hash>` because its
       behaviour changed; Hermes's version is its commit and cannot show a change in the adapter
       around it, so a config made before this change and one made after it name the same Hermes
@@ -811,9 +816,12 @@ Where the platform's conclusions should not be trusted, and why.
    on 2026-10-24 for `det-03-slugify` at step 4 of one attempt) on `det-03-slugify` and
    `det-04-median` in 9 of 9 attempts under Hermes, while the same tasks passed under the minimal
    loop and with Darkbloom excluded. Configs for runs that compare anything should set
-   `harness_options.providers_ignored = ["Darkbloom"]` (entry 18), which leaves the other
-   providers: with it, 3 of 4 attempts of those 2 tasks scored (a fourth ended in an upstream
-   400-class tool-call validation error from Groq, an errored trial). Three things follow. The
+   `harness_options.providers_ignored = ["Darkbloom", "Groq"]` (entry 18). Ignoring Darkbloom alone
+   left `det-04-median` scored in 3 of 3 attempts but `det-03-slugify` in only 1 of 5, the other 4
+   errored: OpenRouter then routed to Groq, whose API validates the model's tool call against the tool's schema and answers
+   400 ("Tool call validation failed: parameters for tool patch did not match schema: missing
+   properties: 'mode'"), which is the model's malformed call and an errored trial here. With both
+   ignored, 6 of 6 attempts of `det-03-slugify` and `det-04-median` scored. Three things follow. The
    provider is not pinned: OpenRouter picks among the rest (Hermes sends a top-level `session_id`,
    `<trial_id>-<attempt>`, that OpenRouter uses as a sticky routing key, and the minimal loop sends
    none, so routing may be sticky for one harness and per request for the other, a confound of its

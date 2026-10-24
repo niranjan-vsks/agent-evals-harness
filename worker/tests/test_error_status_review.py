@@ -108,11 +108,19 @@ class TestMinimalLoopUnusableAnswers:
         _, events, client = run(monkeypatch, make_ctx(tmp_path), [broken] * 6)
         assert kinds(events, "error")[-1]["http_status"] == 502 and len(client.kwargs) == 6
 
-    def test_finish_reason_error_without_a_code_has_no_status(self, monkeypatch, tmp_path):
+    def test_finish_reason_error_without_a_code_is_a_5xx(self, monkeypatch, tmp_path):
+        """OpenRouter's own marker for a failure upstream of it. It came with no code, so 502 stands for the class."""
         self._fast(monkeypatch)
         choice = SimpleNamespace(finish_reason="error", message=SimpleNamespace(content="", tool_calls=None))
         _, events, _ = run(monkeypatch, make_ctx(tmp_path), [SimpleNamespace(choices=[choice], usage=None)] * 6)
-        assert kinds(events, "error")[-1]["http_status"] is None
+        error = kinds(events, "error")[-1]
+        assert error["http_status"] == 502 and "finish_reason: error" in error["message"]
+
+    def test_an_empty_choices_list_with_no_error_object_has_no_status(self, monkeypatch, tmp_path):
+        self._fast(monkeypatch)
+        _, events, _ = run(monkeypatch, make_ctx(tmp_path), [SimpleNamespace(choices=[], usage=None)] * 6)
+        error = kinds(events, "error")[-1]
+        assert error["http_status"] is None and "choices: 0" in error["message"]
 
 
 class TestProvidersIgnoredReachesTheRequest:

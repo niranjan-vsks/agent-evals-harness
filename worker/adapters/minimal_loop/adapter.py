@@ -271,8 +271,13 @@ class MinimalLoopAdapter:
                     code = body.get("code") if isinstance(body, dict) else None
                     if isinstance(code, str) and code.strip().isdigit():
                         code = int(code)
+                    code = code if isinstance(code, int) and not isinstance(code, bool) else None
+                    choices = getattr(resp, "choices", None) or []
+                    finish = getattr(choices[0], "finish_reason", None) if choices else None
+                    if code is None and finish == "error":
+                        code = 502  # OpenRouter's own marker for a failure upstream of it; no code came with it, so the class (5xx) is all there is
                     note = body.get("message") if isinstance(body, dict) else None
-                    raise _ProviderFailure(code if isinstance(code, int) and not isinstance(code, bool) else None, str(note or "the provider returned a reply with no usable choice"))
+                    raise _ProviderFailure(code, f"{note or 'the provider returned a reply with no usable choice'} (choices: {len(choices)}, finish_reason: {finish})")
             except openai.APIStatusError as e:
                 status, reason = e.status_code, f"HTTP {e.status_code}: {e.message}"
             except openai.APIConnectionError as e:

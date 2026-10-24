@@ -2,7 +2,7 @@
 //
 //   node scripts/run-task-set.mjs [--api URL] [--model model-b] [--harness hermes] [--memory off|seeded|both]
 //                                 [--tasks id,id,...] [--repeat N] [--out file.jsonl]
-//                                 [--harness-options '{}']   default: {"providers_ignored":["Darkbloom"]}
+//                                 [--harness-options '{}']   default: {"providers_ignored":["Darkbloom","Groq"]}
 //
 // --memory off     every selected task under the memory-off config
 // --memory seeded  only the tasks whose discriminates includes "memory", under the seeded config
@@ -34,8 +34,8 @@ async function call(method, path, body) {
   return { status: res.status, body: json };
 }
 
-// Darkbloom, an OpenRouter provider of model-b, answers HTTP 502 on some conversations (DESIGN 13.5): leave it out unless told otherwise.
-const harnessOptions = args['harness-options'] ? JSON.parse(args['harness-options']) : { providers_ignored: ['Darkbloom'] };
+// Two OpenRouter providers of model-b fail Hermes's trials (DESIGN 13.5): Darkbloom answers HTTP 502 on some conversations and Groq rejects the model's tool calls. Left out unless told otherwise.
+const harnessOptions = args['harness-options'] ? JSON.parse(args['harness-options']) : { providers_ignored: ['Darkbloom', 'Groq'] };
 const settings = (memory) => ({
   tools: ['shell', 'files'],
   memory,

@@ -40,7 +40,7 @@ const settings = (over = {}) => ({
   max_steps: 15,
   max_output_tokens: 2048,
   timeout_seconds: 300,
-  harness_options: { providers_ignored: ['Darkbloom'] }, // DESIGN 13.5
+  harness_options: { providers_ignored: ['Darkbloom', 'Groq'] }, // DESIGN 13.5
   ...over,
 });
 
