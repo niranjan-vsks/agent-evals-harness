@@ -288,13 +288,23 @@ describe('experiments on the real scheduler and the fake worker', () => {
         await waitFor(() => fake.inFlight === 12, 5000, '12 worker calls in flight');
 
         // release the worker and cancel at once: the 12 settles and the cancel meet at the experiment row
-        const cancelling = sleep(i % 4)
-          .then(() => experiments.cancel(id))
-          .catch((e: unknown) => {
+        const cancelNow = () =>
+          experiments.cancel(id).catch((e: unknown) => {
             if (!(e instanceof ConflictException)) throw e; // any other failure (a deadlock, say) fails the test
             return undefined;
           });
-        fake.openGate();
+        // Even iterations start the cancel first and release the worker a moment later (the settles arrive while the
+        // cancel holds or waits for the experiment row); odd ones release first. Which side wins varies with machine
+        // speed, so both orders run: the cancel-first ones flip running trials whatever the machine.
+        let cancelling: ReturnType<typeof cancelNow>;
+        if (i % 2 === 0) {
+          cancelling = cancelNow();
+          await sleep(i % 4);
+          fake.openGate();
+        } else {
+          cancelling = sleep(i % 4).then(cancelNow);
+          fake.openGate();
+        }
         const result = await cancelling;
         await scheduler.idle();
 
