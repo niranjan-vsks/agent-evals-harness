@@ -129,8 +129,8 @@ class TestUnitTestCannotBeReconfiguredByTheWorkspace:
     def test_a_correct_solution_still_passes_with_those_files_present(self, workspace, fixture_dir):
         (workspace / "answer.py").write_text("def value():\n    return 42\n", encoding="utf-8")
         (workspace / "pytest.ini").write_text("[pytest]\naddopts = -k nothing_matches_this\n", encoding="utf-8")
-        ok, _ = grade_unit_test(self.SPEC, str(workspace), str(fixture_dir))
-        assert ok
+        ok, details = grade_unit_test({**self.SPEC, "timeout_seconds": 180}, str(workspace), str(fixture_dir))  # generous: a loaded host once took the default 60 s
+        assert ok, details
 
     def test_a_workspace_path_with_a_space_works(self, tmp_path, fixture_dir):
         ws = tmp_path / "my work space"
