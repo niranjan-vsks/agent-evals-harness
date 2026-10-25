@@ -1,6 +1,8 @@
 """Subprocess runner: timeouts, kill, trace assembly (ADAPTERS 6, R-1 to R-8).
 
-R-9 (the WORKER_MAX_PARALLEL semaphore and HTTP 429) lands in P3 with the scheduler.
+R-9 (WORKER_MAX_PARALLEL): run_trial admits at most that many attempts at once and raises WorkerBusy
+beyond it, which the server turns into HTTP 429 (the API treats that as backpressure). Each running
+child is also registered in worker.active_trials so DELETE /trials/{id} can cancel it.
 
 Each attempt runs `python -m worker.run_one <spec>` as a fresh child process (R-1). The child
 streams events to out/events.jsonl and, if it gets as far as grading, writes out/result.json.
@@ -12,11 +14,13 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from worker import active_trials
 from worker.adapters.base import TrialContext
 from worker.graders import failed_for_timeout
 from worker.graders.file_state import HIDDEN_DIR
@@ -34,6 +38,15 @@ _PASSTHROUGH = (
 )
 
 
+def _int_env(name: str, default: int) -> int:
+    """An integer from the environment; a blank or non-numeric value (a compose pass-through of an unset
+    variable gives "") means the default, so a typo cannot turn every request into an HTTP 500."""
+    try:
+        return int(os.environ.get(name, "").strip())
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class RunnerConfig:
     work_dir: Path
@@ -41,6 +54,7 @@ class RunnerConfig:
     keep_trial_dirs: bool = False
     kill_margin_seconds: float = 60.0   # R-2: kill at timeout_seconds + 60
     term_grace_seconds: float = 10.0    # R-2: SIGKILL after a SIGTERM grace of 10 s
+    max_parallel: int = 4               # R-9: attempts admitted at once; the next one gets HTTP 429
     python: str = field(default_factory=lambda: sys.executable)
 
     @staticmethod
@@ -51,6 +65,7 @@ class RunnerConfig:
             keep_trial_dirs=os.environ.get("KEEP_TRIAL_DIRS", "0") == "1",
             kill_margin_seconds=float(os.environ.get("RUNNER_KILL_MARGIN_SECONDS", "60")),
             term_grace_seconds=float(os.environ.get("RUNNER_TERM_GRACE_SECONDS", "10")),
+            max_parallel=max(1, _int_env("WORKER_MAX_PARALLEL", 4)),
         )
 
 
@@ -230,9 +245,42 @@ def _build_context(parsed: ParsedSpec, trial_dir: Path, fixture_abs: Path | None
     )
 
 
+class WorkerBusy(Exception):
+    """R-9: the worker already runs WORKER_MAX_PARALLEL attempts. The server answers HTTP 429."""
+
+
+_admission = threading.Lock()
+_in_flight = 0
+
+
+def _admit(limit: int) -> None:
+    global _in_flight
+    with _admission:
+        if _in_flight >= limit:
+            raise WorkerBusy(f"worker at capacity ({_in_flight} of {limit} attempts running, WORKER_MAX_PARALLEL)")
+        _in_flight += 1
+
+
+def _release() -> None:
+    global _in_flight
+    with _admission:
+        _in_flight -= 1
+
+
 def run_trial(spec: dict[str, Any], cfg: RunnerConfig | None = None) -> dict[str, Any]:
-    """Runs 1 attempt and returns a TrialResult dict. Never raises for a bad spec or a bad child."""
+    """Runs 1 attempt and returns a TrialResult dict. Never raises for a bad spec or a bad child.
+
+    Raises WorkerBusy (R-9) before doing any work when the worker is at capacity.
+    """
     cfg = cfg or RunnerConfig.from_env()
+    _admit(cfg.max_parallel)
+    try:
+        return _run_admitted(spec, cfg)
+    finally:
+        _release()
+
+
+def _run_admitted(spec: dict[str, Any], cfg: RunnerConfig) -> dict[str, Any]:
     try:
         parsed = parse_trial_spec(spec)
     except SpecError as e:
@@ -242,6 +290,15 @@ def run_trial(spec: dict[str, Any], cfg: RunnerConfig | None = None) -> dict[str
     adapter = registry.get(parsed.harness)
     if adapter is None:
         return _error_result(spec, "config_invalid", f"unknown harness {parsed.harness!r}")
+
+    if active_trials.is_running(parsed.trial_id):
+        # A lost call re-dispatched while the first child still runs. Refuse before touching the disk (the
+        # directory of the same attempt belongs to that child); 429 so the API re-queues without an attempt.
+        raise WorkerBusy(f"trial {parsed.trial_id!r} is already running on this worker")
+
+    if active_trials.consume_tombstone(parsed.trial_id):
+        # DELETE /trials/{id} arrived before this child existed: nothing to kill, nothing to run.
+        return _error_result(spec, "cancelled", "cancelled by DELETE /trials/{id} before the child started")
 
     secrets: list[str] = []
     for model in (parsed.model, parsed.judge_model):
@@ -298,6 +355,7 @@ def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir:
     out_dir = trial_dir / "out"
     started = time.monotonic()
     timed_out = False
+    cancelled = False
     with open(out_dir / "child.stdout.log", "wb") as so, open(out_dir / "child.stderr.log", "wb") as se:
         popen_kwargs: dict[str, Any] = {}
         if os.name == "nt":
@@ -313,12 +371,25 @@ def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir:
             **popen_kwargs,
         )
         try:
-            proc.wait(timeout=parsed.settings.timeout_seconds + cfg.kill_margin_seconds)  # R-2
-        except subprocess.TimeoutExpired:
-            timed_out = True
+            active_trials.register(parsed.trial_id, proc)  # DELETE /trials/{id} finds the child here
+        except ValueError as e:
+            # The same trial id is still running here (a lost call re-dispatched). Two children would share a
+            # registry slot, so the newcomer yields and the scheduler retries once the first one is gone.
             _kill_tree(proc, cfg.term_grace_seconds)
-        else:
-            _reap_stragglers(proc)
+            return _error_result(spec, "worker_crash", str(e))
+        try:
+            if active_trials.consume_tombstone(parsed.trial_id):
+                active_trials.cancel(parsed.trial_id)  # the DELETE landed between the check above and register
+            try:
+                proc.wait(timeout=parsed.settings.timeout_seconds + cfg.kill_margin_seconds)  # R-2
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _kill_tree(proc, cfg.term_grace_seconds)
+            else:
+                _reap_stragglers(proc)
+            cancelled = active_trials.was_signalled(parsed.trial_id, proc)
+        finally:
+            active_trials.unregister(parsed.trial_id, proc)
     wall_ms = int((time.monotonic() - started) * 1000)
 
     events = read_events(ctx.events_path)  # R-4: from disk, never from the child's memory
@@ -363,6 +434,10 @@ def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir:
             "error_message": None,
             "partial_trace": None,
         }
+
+    if cancelled and not timed_out:
+        # DELETE /trials/{id} killed the child before it wrote a result: not an agent outcome, not plumbing.
+        return _error_result(spec, "cancelled", "cancelled by DELETE /trials/{id}", partial_trace=events)
 
     if timed_out:
         # collect_memory reads only from disk (H-8), so the parent can call it after a kill.

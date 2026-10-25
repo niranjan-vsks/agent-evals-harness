@@ -48,6 +48,7 @@ services:
       TASKS_DIR: /tasks
       WORK_DIR: /work
       KEEP_TRIAL_DIRS: ${KEEP_TRIAL_DIRS:-0}
+      WORKER_MAX_PARALLEL: ${WORKER_MAX_PARALLEL:-4}
     volumes:
       - ./tasks:/tasks:ro
       - workdata:/work

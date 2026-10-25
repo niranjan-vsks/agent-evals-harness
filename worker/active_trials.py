@@ -1,8 +1,8 @@
 """Registry of running trial child processes, so DELETE /trials/{trial_id} can cancel one.
 
-The runner is meant to register each child right after Popen and to unregister it, passing the same
-Popen, in a finally. That wiring is deferred with R-9 (runner.py is not touched in this slice), so
-until then nothing registers and the route always answers 404 for real trials.
+The runner registers each child right after Popen and unregisters it, passing the same Popen, in a
+finally (worker/runner.py, _run_in_dir). A cancelled attempt is reported by the runner as error_class
+"cancelled" (was_signalled tells it a DELETE reached the child).
 
 Contract
 - register(trial_id, proc) refuses (ValueError) an id that is already registered to a child that is
@@ -17,10 +17,14 @@ Contract
 
 This module must not import runner.py (the runner imports the registry, not the reverse).
 
+- A DELETE that finds no child (the trial is still between the start of POST /trials/run and Popen,
+  or has not reached the worker yet) still answers 404, but leaves a short-lived tombstone for that
+  trial id (TOMBSTONE_SECONDS). The runner consumes it before it touches the disk and right after it
+  registers the child, and reports the attempt as cancelled instead of running it. The TTL is shorter
+  than the API's 30 s re-queue backoff after an orphan recovery (which also sends a DELETE), so a
+  re-dispatch of that trial is never hit by its own tombstone.
+
 Known limits
-- A DELETE that arrives between the start of POST /trials/run and Popen (spec parsing, the task-hash
-  check, the fixture copy) finds no entry and gets 404. No cancel tombstone is kept, so that trial
-  then runs to completion. The scheduler treats 404 as "nothing to cancel" and drops the late result.
 - The signal goes to the child's process group only. The minimal_loop adapter starts every shell
   command with start_new_session=True, so each command is in its own session and survives a group
   SIGTERM until it finishes. Closing that gap belongs to the adapter (a SIGTERM handler that runs its
@@ -30,9 +34,12 @@ import os
 import signal
 import subprocess
 import threading
+import time
 
 # How long a SIGTERMed child may take to exit before it is SIGKILLed (a module constant so tests can lower it).
 GRACE_SECONDS = 10.0
+# How long a DELETE for a trial with no registered child stays valid (see the module docstring).
+TOMBSTONE_SECONDS = 20.0
 
 
 class _Entry:
@@ -44,6 +51,14 @@ class _Entry:
 
 _lock = threading.Lock()
 _active: dict[str, _Entry] = {}
+_tombstones: dict[str, float] = {}  # trial id -> time.monotonic() deadline
+
+
+def consume_tombstone(trial_id: str) -> bool:
+    """True once, when an unexpired DELETE arrived for this trial id before its child existed."""
+    with _lock:
+        deadline = _tombstones.pop(trial_id, None)
+    return deadline is not None and time.monotonic() < deadline
 
 
 def register(trial_id: str, proc: subprocess.Popen) -> None:
@@ -67,6 +82,20 @@ def unregister(trial_id: str, proc: subprocess.Popen) -> None:
         del _active[trial_id]
 
 
+def is_running(trial_id: str) -> bool:
+    """True when a child is registered for this trial id and has not exited."""
+    with _lock:
+        entry = _active.get(trial_id)
+        return entry is not None and entry.proc.poll() is None
+
+
+def was_signalled(trial_id: str, proc: subprocess.Popen) -> bool:
+    """True when cancel() delivered a signal to this proc (checked by the runner before it unregisters)."""
+    with _lock:
+        entry = _active.get(trial_id)
+        return entry is not None and entry.proc is proc and entry.signalled
+
+
 def _send(proc: subprocess.Popen, force: bool) -> bool:
     """Signal the child's whole tree; True only when a signal was actually delivered.
 
@@ -76,7 +105,10 @@ def _send(proc: subprocess.Popen, force: bool) -> bool:
     """
     if os.name == "nt":
         result = subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
-        return result.returncode == 0
+        # taskkill exits non-zero when any process of the tree could not be terminated (one that was already
+        # exiting, say) although the root was; the root's own SUCCESS line is what says the cancel landed.
+        root_killed = f"SUCCESS: The process with PID {proc.pid} ".encode() in result.stdout
+        return result.returncode == 0 or root_killed
     try:
         os.killpg(proc.pid, signal.SIGKILL if force else signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
@@ -94,6 +126,10 @@ def cancel(trial_id: str) -> bool:
     with _lock:
         entry = _active.get(trial_id)
         if entry is None:
+            now = time.monotonic()
+            for k in [k for k, d in _tombstones.items() if d <= now]:
+                del _tombstones[k]
+            _tombstones[trial_id] = now + TOMBSTONE_SECONDS
             return False
         if entry.proc.poll() is not None:
             # finished on its own: nothing to signal, and the entry is stale

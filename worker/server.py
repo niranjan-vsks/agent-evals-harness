@@ -4,7 +4,8 @@ endpoints and exchanges 2 JSON shapes, TrialSpec in and TrialResult out (DESIGN 
 GET  /health
 GET  /adapters                    the manifest: every registered adapter and its capabilities
 POST /adapters/{id}/validate      body = Settings JSON; returns the reasons it cannot be honored
-POST /trials/run                  body = TrialSpec JSON; blocks until the TrialResult is ready
+POST /trials/run                  body = TrialSpec JSON; blocks until the TrialResult is ready;
+                                  HTTP 429 when WORKER_MAX_PARALLEL attempts already run (R-9)
 DELETE /trials/{trial_id}         SIGTERM the running trial's process group (SIGKILL on a repeat or after 10 s);
                                   200 {"cancelled": true} when a signal was delivered, else 404
 """
@@ -18,7 +19,7 @@ from fastapi import Body, FastAPI, HTTPException
 from worker import active_trials
 from worker.adapters.base import Capabilities
 from worker.registry import load_registry
-from worker.runner import run_trial
+from worker.runner import WorkerBusy, run_trial
 from worker.spec import SpecError, settings_from_dict
 
 app = FastAPI(title="agent-evals worker")
@@ -72,8 +73,11 @@ def validate(adapter_id: str, settings: dict[str, Any] = Body(...)) -> dict[str,
 @app.post("/trials/run")
 def run(spec: dict[str, Any] = Body(...)) -> dict[str, Any]:
     # A plain `def` endpoint: FastAPI runs it in a worker thread, so a long trial does not
-    # block /health. The scheduler bounds concurrency (R-9 lands in P3).
-    return run_trial(spec)
+    # block /health. The scheduler bounds concurrency; this is the worker's own bound (R-9).
+    try:
+        return run_trial(spec)
+    except WorkerBusy as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
 
 
 @app.delete("/trials/{trial_id}")

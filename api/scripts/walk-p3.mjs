@@ -152,6 +152,36 @@ check(
   ccsv.text.slice(0, 400),
 );
 
+// R-9: cancel a running experiment against the real worker. The experiment ends cancelled (never partial or
+// completed), its in-flight trials are cancelled, and the worker's DELETE /trials/{id} found the child (200).
+const cancelMe = await call('POST', '/experiments', {
+  name: `p3 walk cancel ${new Date().toISOString()}`,
+  config_ids: [off.body.id, seeded.body.id],
+  task_ids: ['mem-01-staging-db', 'det-06-ini'],
+  n_trials: 3,
+  seed: 7,
+  axis: 'cancel check',
+  phase: 'full',
+});
+const cid = cancelMe.body.id;
+await call('POST', `/experiments/${cid}/start`);
+let seenRunning = 0;
+for (let i = 0; i < 90 && seenRunning === 0; i++) {
+  seenRunning = (await call('GET', `/experiments/${cid}`)).body.progress?.running ?? 0;
+  if (seenRunning === 0) await new Promise((r) => setTimeout(r, 1000));
+}
+check(seenRunning > 0, `cancel check: ${seenRunning} trial(s) running before the cancel`);
+const worker = (process.env.WORKER_URL ?? 'http://worker:8000').replace(/\/$/, '');
+// let the Hermes children start, so the DELETE finds them (CANCEL_AFTER_MS=0 cancels in the window before Popen: the tombstone path)
+await new Promise((r) => setTimeout(r, Number(process.env.CANCEL_AFTER_MS ?? 8000)));
+const cancelled = await call('POST', `/experiments/${cid}/cancel`);
+check(cancelled.status === 200 && cancelled.body.status === 'cancelled', `POST cancel -> ${cancelled.status}, status ${cancelled.body.status}`, cancelled.text.slice(0, 300));
+await new Promise((r) => setTimeout(r, 4000));
+const afterCancel = (await call('GET', `/experiments/${cid}`)).body;
+check(afterCancel.status === 'cancelled' && afterCancel.progress.running === 0 && afterCancel.progress.done === 0, `cancelled experiment stays cancelled: ${JSON.stringify(afterCancel.progress)}`);
+const again = await fetch(`${worker}/trials/${afterCancel.id}`, { method: 'DELETE' }).catch(() => null);
+check(again === null || again.status === 404, 'a DELETE for an unknown trial id answers 404');
+
 console.log(`\nexperiment ${id}`);
 console.log(`\nCOMPARISON JSON\n${JSON.stringify(c, null, 2)}`);
 console.log(failures === 0 ? '\nWALK PASSED' : `\nWALK FAILED (${failures} check(s))`);

@@ -682,8 +682,15 @@ Independent reviews: 4 slice reviewers, 3 second-round reviewers and 1 whole-dif
 
 ### Cut on purpose
 
-- **R-9 (`worker/runner.py`): the `WORKER_MAX_PARALLEL` semaphore with HTTP 429, and the registry wiring that makes `DELETE /trials/{id}` real. Deferred to P4.** The instruction was to do it last and only after `git log -- worker/runner.py` shows a "P2 close-out" commit. At the end of P3 the newest runner commit is `P2: provider HTTP errors ...` and STATE.md has no P2 section, so the P2 session had not closed out. Until then the worker never answers 429 (the backpressure path is tested against the fake only), and `DELETE` answers 404 for every real trial: a cancelled experiment stops being scheduled and its late results are dropped, but the worker child keeps running until it ends or times out. To finish: call `active_trials.register(trial_id, proc)` right after `Popen` in `_run_in_dir` and `unregister(trial_id, proc)` in a `finally`, add the semaphore in `run_trial` (429 when full, default 4), and add a real DELETE-mid-run test.
-- UI, running the real experiment, labelling, failure categories (the card's out-of-scope list). No manual trial-level retry.
+- Nothing from R-9 is cut any more: it was done after the P2 close-out (see "R-9" below). Still cut: UI, running the real experiment, labelling, failure categories (the card's out-of-scope list), and a manual trial-level retry.
+
+### R-9 (done after the P2 close-out commit `6ce0884`)
+
+- `worker/runner.py`: `WORKER_MAX_PARALLEL` (default 4, blank or bad values fall back to 4) admits attempts; the next one raises `WorkerBusy` before any work and `worker/server.py` answers **HTTP 429**, which the API already treats as backpressure (re-queue, no attempt counted). A trial id that is already running on the worker gets the same 429 before the disk is touched. `docker-compose.yml` passes `WORKER_MAX_PARALLEL`.
+- Each child is registered in `worker/active_trials.py` right after `Popen` and unregistered in a `finally`, so `DELETE /trials/{id}` signals the process group (200); the attempt is reported as `errored / cancelled`. A DELETE that arrives before the child exists answers 404 and leaves a 20 s tombstone that the runner consumes before it starts the child (shorter than the 30 s orphan backoff, so a re-dispatch is never hit by its own tombstone).
+- Verified: `worker/tests/test_r9.py` 13 tests (capacity, 429 over HTTP, release on error, real DELETE of a running child, tombstone, duplicate id, env parsing); host `test_r9 + test_server_delete + test_runner + test_server`: 59 passed, 3 skipped (POSIX-only). Container: `docker compose exec worker pytest -q` **606 passed, 27 skipped**, exit 0 (the Linux kill path ran). Two adversarial reviewers; their findings (late duplicate guard, env parsing, tests that could not fail) were fixed.
+- Walk with a cancel against the real worker (`walk-p3.mjs`, 2 runs, both `WALK PASSED`): cancelling 8 s after dispatch gave DELETE 200 for 2 running trials and 404 (tombstone) for the third; cancelling at once gave 404 for all 3 (tombstones); after each, no `worker.run_one` child was left in the worker container. The experiment ended `cancelled` with 12 cancelled trials.
+- Still open: the minimal_loop adapter starts each shell command in its own session, so a cancel does not stop a command the agent started (adapter change, not R-9).
 
 ### Found but not fixed
 
@@ -695,7 +702,7 @@ Independent reviews: 4 slice reviewers, 3 second-round reviewers and 1 whole-dif
 6. **`GET export.json` and `compare.csv` write a `comparison_run`** (deduplicated when unchanged). Two simultaneous first calls can both insert.
 7. **The breaker count is in memory**: after a restart 5 more terminal errors are needed to pause.
 8. **The minimal_loop adapter starts each shell command in its own session**, so a group SIGTERM from a future cancel does not reach it.
-9. **A `DELETE` between the start of `/trials/run` and `Popen` gets 404** and leaves no tombstone. Documented in `active_trials.py`.
+9. The DELETE-before-Popen window is covered by a 20 s tombstone (see R-9); a DELETE for a trial that never reaches the worker is harmless.
 10. **The pilot counts judged tasks in T**; the payload gives `n_judged_tasks` and a half-width without them.
 11. ESLint and Prettier were not run (existing files do not follow the default Prettier width). Long lines were wrapped by hand.
 12. The compose stack (api, worker) was rebuilt and recreated during P3 while the P2 session was also using it.
@@ -708,5 +715,5 @@ Independent reviews: 4 slice reviewers, 3 second-round reviewers and 1 whole-dif
 
 ### Next action
 
-1. Check `git log -- worker/runner.py` for the P2 close-out commit. When it is there, do R-9 as written under Cut, re-run `worker/tests/test_runner.py` and the new 429 and DELETE tests, and add a mid-run cancel to the walk. Then claim P4 (`cards/P4.md`).
+1. P3 is complete (R-9 included). Claim P4 (`cards/P4.md`).
 2. To get this stack back: set the Docker variables above, `docker compose up -d`, `docker compose ps`, and re-run `docker compose exec api node scripts/walk-p3.mjs http://localhost:3000 model-b 2` (about 3 minutes, about 0.001 USD).
