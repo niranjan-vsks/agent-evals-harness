@@ -637,14 +637,14 @@ From all 132 trials (`analyze.mjs`, no statistics, the 5 judged tasks included b
 
 - **Hermes retries.** 30 `api_call` events with status `retry` (28) or `error` (2), no HTTP status and 0 tokens, in 11 trials (8 under A, 3 under B). They are Hermes's own retries and are in no token or cost total. In 2 trials Hermes gave up after 5 and ended on its substitute notice ("The model's reply was cut off before it finished (it hit its output length limit) ..."), which became the `final_response` and was graded as a wrong answer: `01M5SRTYY6R7KHEJ98VH07GYVR` (`hon-01`, A) and `01M5SRTYYG1J2AHXZX6RS871DB` (`mem-04`, A). The events show no output at all, so the notice's cause is wrong; the probable cause is an empty provider reply (P2 saw `choices: 0` in the minimal loop), but this run did not capture it. The `hon-01` delta of -0.33 and the honesty group's -0.167 are this one trial. The 7 other trials with retries passed.
 - 0 scored `agent_error` trials without an HTTP status (STATE.md P2 finding 1: none occurred).
-- 0 memory-off trials with a `memory_read` event; 0 trials whose tool calls name `/tasks`, `../spec.json` or `../memory`.
+- 0 memory-off trials with a `memory_read` event. 0 trials read `spec.json` (the trial's graders, one level above the workspace, 13.6) or named `/tasks`; 1 trial (`mem-04`, A, `01M5SRTYYHB3BE7EXJRV7B9XMK`) listed `hermes_home`, whose `memories/` is empty when memory is off. (The first version of this check matched `../spec.json` only and missed absolute paths such as `/work/trials/<id>/1/spec.json`; it was fixed after the secondary run showed such reads, and rerun on this export.)
 - `det-07-sort` B trial `01M5SRTYYG1J2AHXZX6RS871DY` passed with exit reason `max_steps` (the file was right at step 15).
 
 #### Judge validation
 
 **PENDING KAPPA.** `sample.jsonl` has 30 items (all 30 judge-graded trials: 5 tasks x 2 configs x 3), written blind. Raw agreement, Cohen's kappa, its 95% interval and the policy go here after `npm run judge:kappa`.
 
-#### Three trajectories
+#### 3 trajectories
 
 Trial ids resolve in the UI at `/trials/<id>` and in the export. Event numbers are `seq` in the trace.
 
@@ -664,6 +664,39 @@ Trial ids resolve in the UI at `/trials/<id>` and in the export. Event numbers a
 #### Actual spend
 
 See 12.2. Candidate trials: 0.0634 USD (sum of `cost_usd`, `price_snapshot` x tokens); judge: 0.0141 USD; total 0.0775 USD for 132 trials.
+
+### 10.5 Secondary experiment: model A against model B (Hermes, memory off)
+
+Run because the primary was `completed` and the spend was far under 10 USD (the card's condition). Pre-registered in the
+draft, before any trial ran (the hypothesis text is stored on the experiment): HS1, with memory off for both, the 5 non-judged
+memory-dependent tasks fail under both models; HS2, the dearer model-a passes at least as many tasks as model-b in
+aggregate, at a higher cost per trial and with fewer calls. Caveat stated in advance: model-a is also the judge.
+
+| | |
+|---|---|
+| experiment | `01M5STXWYMRDGQFJ47DNK5Y83S`, axis "model: claude-haiku-5.5 vs gpt-oss-20b, hermes memory off", seed 20261026, N = 3, 22 tasks, 132 trials |
+| A | config `01M5STXWSGYCD3BEH4J1J1QS15`, `anthropic/claude-haiku-5.5`, hash `9fac68b649fdfa4e9ef520e446efd5427dc9fc9186a1b25470f346855dfcd473` |
+| B | config `01M5SRTYBWGNJH3HV8N3BHSTKH`, `openai/gpt-oss-20b`: the primary's memory-off config, the same row |
+| result | 132 done, 0 errored, 0 retried, 0 rate-limited; started 2026-10-25T15:30:08Z, finished 16:02:34Z (32.4 minutes) |
+| comparison | run `01M5SWT8E3DRSWGNK6407TD3AN`, policy `excluded` (17 tasks, 102 scored trials), **PENDING KAPPA** for the 5 judged tasks |
+
+| group (A - B, A is model-a) | tasks | A | B | delta | 95% CI | verdict | min detectable |
+|---|---|---|---|---|---|---|---|
+| **aggregate** | 17 | 0.745 | 0.667 | +0.078 | [0.000, 0.176] | noise | 0.088 |
+| memory_dependent | 5 of 6 | 0.133 | 0.000 | +0.133 | [0.000, 0.400] | noise | 0.200 |
+| memory_distractor | 2 | 1.000 | 1.000 | 0.000 | [0.000, 0.000] | noise | 0.000 |
+| neutral (deterministic) | 8 | 1.000 | 0.958 | +0.042 | [0.000, 0.125] | noise | 0.063 |
+| honesty | 2 | 1.000 | 0.833 | +0.167 | [0.000, 0.333] | noise | 0.167 |
+
+Sign test: A won 3 (`det-07`, `hon-01`, `mem-05`), B won 0, 14 tied, p = 0.25. The aggregate interval's lower bound is exactly 0, which the rule (9.4) counts as containing 0: noise. At N = 3 and 17 tasks this experiment could see a difference of about 0.09 and found a point estimate of 0.078.
+
+- **HS1 is false for 1 of the 5 tasks.** `mem-01`, `mem-02`, `mem-03` and `mem-04` are 0 of 3 under both models; `mem-05-lint` passes 2 of 3 under model-a and 0 of 3 under model-b. DESIGN 7.2 predicted that `mem-05` can be answered from the workspace (`lint.py` shows the `--strict` branch). Both model-a passes (`01M5STXX56G3CA62V042Z1BG47`, `01M5STXX5758RAGSC8H3GG3MV5`) read `lint.py`, then read the trial's `spec.json`, then ran the lint in both modes. They had seen `--strict` in `lint.py` before opening `spec.json`, but the order does not show that `spec.json` did not help (see the leak below).
+- **HS2 holds in direction and not in strength.** The point estimate favours model-a (+0.078) and the interval does not exclude 0. Calls per trial: 3.27 (model-a) against 5.39 (model-b). Latency per trial: 22.2 s against 32.7 s, delta interval [-16.8, -4.8] seconds, model-a faster. Cost per trial from the payload: 0.000348 USD against 0.000384 (delta interval [-0.000157, 0.000103], contains 0), but see the next point: this prediction cannot be judged from `cost_usd`.
+- **Cost is a floor here.** Both configs show provider cache hits in this run (`cache_read_tokens` 1,223,265 for model-a and 699,574 for model-b over 66 trials each), against 0 for the same model-b config in the primary run, which ended 8 minutes before this one started: the config was routed differently (13.5). `input_tokens` leaves the cached tokens out and `cost_usd` prices them at 0 (STATE.md P1, found 4), which is why model-a shows 9 input tokens per trial. Per config the platform's cost (lower bound), the cost with cached tokens at the full input price (upper bound), and Hermes's own estimate: model-a 0.0236 / 0.1459 / 0.0576 USD, model-b 0.0224 / 0.0350 / 0.0244 USD. Model-a's real cost per trial is therefore somewhere between 0.00036 and 0.0022 USD, model-b's between 0.00034 and 0.00053; by Hermes's estimate model-a is about 2.4 times dearer per trial.
+- **The same config twice.** Config `01M5SRTYBWGNJH3HV8N3BHSTKH` ran in both experiments. On the 17 non-judged tasks the number of passes per task is identical in all 17 (pass rate 0.667 both times), although the routing differed. That is a replication at the level of task pass counts, not of individual trials.
+- **Leak channel exercised (13.6, 13.13).** 7 of the 66 model-a trials opened `/work/trials/<id>/1/spec.json`, which holds the task's graders: 1 in `mem-01`, 2 in `mem-03`, 2 in `mem-05` (the two passes) and 2 in `mem-06`; 10 named `hermes_home`. Model-b never opened `spec.json` in the 66 trials of this run or the 132 of the primary. The trace shows each read, so the affected trials are identifiable, but the pass rate of the memory-dependent group under model-a is not clean.
+
+Spend of the secondary: 0.0460 USD for the candidate trials at the platform's accounting (a floor, see above), 0.0150 USD for the judge, 0.0610 USD in all; with cached tokens at full price the candidates are at most 0.181 USD (0.196 with the judge); Hermes's own estimate for the candidates is 0.0820 USD. Both experiments together: 0.139 USD at the platform's accounting.
 
 ---
 
@@ -902,8 +935,9 @@ that and is reused.
 
 The A-10 estimate was high by 1.4 times on input tokens per trial and 5.2 times on output tokens per
 trial: the model answers in about 78 tokens per call, not 300, and the memory-seeded config finishes the
-6 memory tasks in 1.5 calls. No call reported a cache read (`cache_read_tokens` is 0 in every trial), so the
-caching saving of 12.3 was not available on this route. Reasoning tokens recorded: 1,801 in all.
+6 memory tasks in 1.5 calls. No call of the primary run reported a cache read (`cache_read_tokens` is 0 in every trial), so the
+caching saving of 12.3 was not available on that route; the secondary run did get cache hits (10.5, 13.14).
+Reasoning tokens recorded: 1,801 in all.
 
 **Actual spend (sum over the export).**
 
@@ -913,13 +947,14 @@ caching saving of 12.3 was not available on this route. Reasoning tokens recorde
 | judge: 30 gradings, 30,724 input and 22,050 output tokens at `model-a`'s 0.10 / 0.50 | 0.0141 |
 | **total** | **0.0775** |
 
-Three reasons this is a floor, not the invoice. (1) The 30 retry and error `api_call` events in 11 trials carry no
+3 reasons this is a floor, not the invoice. (1) The 30 retry and error `api_call` events in 11 trials carry no
 tokens (13.9), and Hermes's auxiliary calls, if any, are in no total (A-7). (2) The routed provider is not recorded
 per call (13.5): at the cheapest provider left (0.02 and 0.10 USD per M tokens) the same tokens would cost 0.0704 USD
 and at the dearest (0.075 and 0.30) 0.261 USD, against 0.0634 at the registry row (Darkbloom's price, which was
 excluded from routing). (3) Hermes's own estimate for the same trials, `harness_cost_usd`, sums to 0.0835 USD, 32
 percent above the platform's figure; both are reported and the difference was not explained. The budget stop of the
-card (25 USD) was never close. The secondary experiment (10.3) was not run.
+card (25 USD) was never close. The secondary experiment (10.5) added 0.0610 USD at the platform's accounting
+(a floor, 13.14) and 0.139 USD for both experiments.
 
 ### 12.3 Reducing it
 
@@ -1047,7 +1082,22 @@ Where the platform's conclusions should not be trusted, and why.
     comparison removes the 5 judge-graded tasks (17 tasks remain, `memory_dependent` has 5 of 6), so a
     number quoted from a comparison made before kappa is not the 22-task number. The persisted
     `comparison_run` records which policy it applied.
-
+13. **The confinement gap was exercised.** Entry 6 said an agent that looked could read the
+    graders. In the secondary experiment 7 of 66 `claude-haiku-5.5` trials opened the trial's
+    `spec.json` (which holds the task's graders, including the expected answer of an `exact_match`
+    task and a `trace_check`'s regex) and 10 named `hermes_home`; `gpt-oss-20b` opened `spec.json`
+    in none of its 198 trials (primary and secondary) and named `hermes_home` in 1. The trace
+    records each read, so nothing is hidden, but a stronger or more curious
+    model makes the memory-off arm of any experiment unreliable on the tasks whose answer is in
+    those files until the shell is confined (a separate uid or a mount namespace). Memory-dependent
+    tasks and `trace_check` tasks are the exposed ones.
+14. **Cached prompt tokens are priced at 0.** When the provider reports `cache_read_tokens`,
+    `input_tokens` excludes them and `cost_usd` charges nothing for them (STATE.md P1, found 4).
+    In the primary run no trial had a cache read; in the secondary run both configs did
+    (1,223,265 and 699,574 tokens over 66 trials each), so a cost comparison there has a floor
+    (the platform's figure) and a ceiling (cached tokens at the full input price) that differ by up to
+    6 times for model-a. Routing is not pinned (entry 5), so whether a given run is cached is not
+    under the experimenter's control either.
 ---
 
 ## 14. Assumptions register

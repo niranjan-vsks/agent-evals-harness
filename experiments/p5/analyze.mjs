@@ -66,6 +66,11 @@ for (const c of exp.configs) {
     cost_usd_mean: mean(ts.map((t) => t.cost_usd ?? 0)),
     cost_usd_total: sum(ts.map((t) => t.cost_usd ?? 0)),
     harness_cost_usd_total: sum(ts.map((t) => t.harness_cost_usd ?? 0)),
+    // `input_tokens` leaves out tokens the provider served from its cache (`cache_read_tokens`) and `cost_usd` prices them at 0, so
+    // cost_usd is a floor when cache reads exist; the ceiling prices them at the full input price (STATE.md P1, found 4).
+    cache_read_tokens_total: sum(ts.map((t) => t.cache_read_tokens ?? 0)),
+    prompt_tokens_per_trial_with_cache: mean(ts.map((t) => (t.input_tokens ?? 0) + (t.cache_read_tokens ?? 0))),
+    cost_usd_ceiling_total: sum(ts.map((t) => (t.cost_usd ?? 0) + ((t.cache_read_tokens ?? 0) * (t.price_snapshot?.input_price_per_mtok ?? 0)) / 1e6)),
     latency_s_mean: mean(ts.map((t) => (t.latency_ms ?? 0) / 1000)),
   };
 }
@@ -75,7 +80,7 @@ for (const [name, p] of Object.entries(perConfig)) {
   console.log(
     `${name}: ${p.trials_done} done, ${r(p.steps_mean)} steps, ${r(p.input_tokens_per_trial, 0)} in / ${r(p.output_tokens_per_trial, 0)} out per trial, ` +
       `${r(p.input_tokens_per_call, 0)} in / ${r(p.output_tokens_per_call, 0)} out per call, cost ${r(p.cost_usd_mean, 6)} per trial (${r(p.cost_usd_total, 4)} total), ` +
-      `harness estimate ${r(p.harness_cost_usd_total, 4)}, ${r(p.latency_s_mean)} s`,
+      `harness estimate ${r(p.harness_cost_usd_total, 4)}, cache reads ${r(p.cache_read_tokens_total, 0)} tokens (cost ceiling ${r(p.cost_usd_ceiling_total, 4)}), ${r(p.latency_s_mean)} s`,
   );
 }
 
@@ -143,7 +148,12 @@ const noStatusErrors = trials.filter((t) => t.status === 'done' && t.exit_reason
 const NOTICE = /^(No reply: |The model's reply was cut off)/;
 const notices = trials.filter((t) => NOTICE.test(t.trace?.final_response ?? ''));
 const toolArgs = (t) => events(t).filter((e) => e.kind === 'tool_call').map((e) => JSON.stringify(e.args ?? {}));
-const touchedTasksDir = trials.filter((t) => toolArgs(t).some((a) => /\/tasks\b|\.\.\/spec\.json|\.\.\/memory/.test(a)));
+// The agent's shell is not confined (DESIGN 13.6): the trial directory above the workspace holds spec.json (the graders) and hermes_home.
+// Paths are absolute in practice (/work/trials/<id>/1/spec.json), so match the file names, not "../".
+const readsSpec = trials.filter((t) => toolArgs(t).some((a) => /spec\.json/.test(a)));
+const readsTasksDir = trials.filter((t) => toolArgs(t).some((a) => /(^|[^\w])\/tasks\b|_hidden|expected\//.test(a)));
+const readsHermesHome = trials.filter((t) => toolArgs(t).some((a) => /hermes_home/.test(a)));
+const touchedTasksDir = [...new Set([...readsSpec, ...readsTasksDir])];
 const offCfg = exp.configs.find((c) => c.settings?.memory?.mode === 'off');
 const memoryOffReadMemory = trials.filter((t) => t.config_id === offCfg?.id && events(t).some((e) => e.kind === 'memory_read'));
 // Hermes's own retries are `api_call` events with status retry or error and no tokens; they carry no HTTP status when the provider
@@ -163,7 +173,9 @@ console.log(JSON.stringify(out.hermes_retries, null, 1));
 out.data_quality = {
   scored_agent_error_without_http_status: noStatusErrors.map((t) => ({ id: t.id, task_id: t.task_id, config: cfgName[t.config_id], error: lastError(t)?.message ?? null })),
   hermes_substitute_notice_as_final_response: notices.map((t) => ({ id: t.id, task_id: t.task_id, config: cfgName[t.config_id], text: t.trace.final_response.slice(0, 80) })),
-  trials_whose_tool_calls_name_tasks_dir_or_spec: touchedTasksDir.map((t) => ({ id: t.id, task_id: t.task_id, config: cfgName[t.config_id] })),
+  trials_whose_tool_calls_name_tasks_dir_or_spec: touchedTasksDir.map((t) => ({ id: t.id, task_id: t.task_id, config: cfgName[t.config_id], reads_spec_json: readsSpec.includes(t) })),
+  trials_that_read_spec_json: readsSpec.length,
+  trials_that_named_hermes_home: readsHermesHome.length,
   memory_off_trials_with_memory_read_event: memoryOffReadMemory.length,
   trials_without_trace: trials.filter((t) => t.status === 'done' && !t.trace).length,
 };

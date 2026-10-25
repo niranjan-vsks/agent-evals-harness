@@ -50,7 +50,7 @@ experiment + README + video script. P6 failure categories (stretch). After P3 th
 submission is coherent without the UI.
 
 **Status.** P1 and P2 are done: all 5 gates of each passed (see the P2 section for the numbers and
-the isolated stack they ran on). P3 is done (its section is at the end of this file). P4 is done: all 5 gates passed (first section below). P5 is next.
+the isolated stack they ran on). P3 is done (its section is at the end of this file). P4 is done: all 5 gates passed (first section below). P6 is built and stopped at its section 9 condition (its section is first). P5 has run: the primary experiment (N = 3, 132 trials, 0 errored) and the secondary are finished and committed, README.md, VIDEO.md and the DESIGN 10.4, 10.5 and 12.2 drafts are written; it is waiting for the owner's 30 labels (see its section, Next action).
 
 ---
 
@@ -117,14 +117,24 @@ Decide Found 1 (the architect: add the 2 or 3 pure rules above, or accept the hi
 
 ---
 
-## P5: The real experiment, judge validation, README, results, video script (IN PROGRESS)
+## P5: The real experiment, judge validation, README, results, video script (STOPPED AT THE LABELS)
 
-This section is written in steps while the phase runs. The part below was written BEFORE the comparison endpoint was opened.
+Everything that does not need `labels.jsonl` is done. The owner writes the 30 labels by hand; then `judge:kappa`, a re-export and the PENDING KAPPA parts of DESIGN 10.4 and 10.5 remain (see Next action). **Blind labelling:** the 30 items are all the judge-graded trials, so do not read `experiments/results/*`, DESIGN 10.4 or 10.5 beyond what they say is withheld, the Compare or trial pages for the 5 judged tasks (`jdg-01` to `jdg-04`, `mem-06`), `analyze.mjs --reveal-judged`, or the P6 section's Found 1 (it counts judged failures per task) until `labels.jsonl` is committed.
+
+### Shipped
+
+- **The experiments** (details below). Primary `01M5SRTYPNZ9EWV1HX8KJGX40N`: Hermes, `openai/gpt-oss-20b`, memory off against seeded, 22 tasks, N = 3 chosen by the pilot rule (the pilot is the full run), 132 trials, 0 errored. Secondary `01M5STXWYMRDGQFJ47DNK5Y83S`: model-a against model-b, memory off, N = 3, 132 trials, 0 errored.
+- **`experiments/results/`**: for each experiment `<id>.json` (export with traces, `comparison_runs[0]` is the persisted comparison), `<id>-compare.csv`, `<id>-trials.csv`; and `p5run-db-pre-kappa.sql.gz` (`pg_dump` of the run's database, 676,569 bytes; test-restored into a scratch `postgres:16`: exit 0, 264 trials, 2 experiments, 3 configs, 2 comparison runs). The platform has no import endpoint, so this dump is the only way to bring the experiments back into a database.
+- **`experiments/judge-validation/sample.jsonl`**: 30 items, blind (D-15), seed 20261023, 3 per config and task for the 5 judged tasks (those are all 30 judge-graded trials of the primary).
+- **`experiments/p5/`**: `setup-pilot.mjs`, `wait.mjs`, `fetch-results.mjs`, `analyze.mjs`, `setup-secondary.mjs`, and a README with the isolated-stack recipe.
+- **`README.md`** (setup, tests, smoke test, use, add a task, a harness, a model, reproduce, export, the primary experiment, where the design lives, layout) and **`VIDEO.md`** (timed script, 0:00 to 10:00).
+- **`DESIGN.md`**: 10.4 (draft, every number except kappa and what depends on it), new 10.5 (the secondary), 12.2 (estimate against measurement, actual spend), 13.9 to 13.14 (6 limits found in the run).
+- No application code was changed by this phase: none of its commits touches `api/`, `worker/` or `web/` (the P6 commits do).
 
 ### Run setup
 
 - **Where it ran.** An isolated compose project `p5run` on the same Windows 11 host, built from `git archive cb7a46d` (the P4 commit, so the P6 session's uncommitted work in the same checkout cannot reach it) in `C:\hx\p5src`, with ports 127.0.0.1:3200 (api), 8200 (worker) and 8280 (web), the repo's `.env` by absolute path and `experiments/` bind-mounted from the repo (so `judge:sample` writes into it). Classic builder (`DOCKER_BUILDKIT=0`, `COMPOSE_BAKE=false`). The database is new (`p5run_dbdata`): none of the P1 to P4 rows are in it. Docker Desktop was not running at the start and was started by hand.
-- **Settings.** `MAX_CONCURRENT_TRIALS` 2 (printed from the api container), `WORKER_MAX_PARALLEL` 4, `JUDGE_MODEL_ID` `model-a`. No other session used this stack.
+- **Settings.** `MAX_CONCURRENT_TRIALS` 2 (printed from the api container), `WORKER_MAX_PARALLEL` 4, `JUDGE_MODEL_ID` `model-a`. The P6 session read the database with `pg_dump` (its own STATE section says so) and wrote nothing to it. The stack still runs the P4 images (no migration `0003`).
 - **Configs** (created by `experiments/p5/setup-pilot.mjs` through `POST /configs`; both 201): A `hermes memory off` id `01M5SRTYBWGNJH3HV8N3BHSTKH`, `config_hash` `638fcbb999c8fb535e7aa8155bc13fc148cc0bed241d0e91240c11459890ae66`; B `hermes memory seeded` (`team-memory-v1`) id `01M5SRTYKGT14BBXBCKFV1ANYQ`, `config_hash` `1b359ab5b8b402d225622f3bc0861813bd15b77126232645038d0aaf5b2af88e`. Both: harness `hermes` (commit `f4ac0bea1e`), `model-b` = `openai/gpt-oss-20b`, tools `[shell, files]`, skills off, temperature 0, `max_steps` 15, `max_output_tokens` 2048, `timeout_seconds` 300, `harness_options.providers_ignored = ["Darkbloom", "Groq"]` (DESIGN 13.5).
 - **Experiment** `01M5SRTYPNZ9EWV1HX8KJGX40N`, "P5 primary: hermes memory off vs seeded", draft with phase `pilot`, `n_trials` 3, `seed` 20261025, the 22 tasks as an explicit `task_ids`, axis `hermes memory off vs seeded`, and the hypothesis read from DESIGN.md 10.1 by the script (H1 to H3, verbatim, and the API echoed it back). Started 2026-10-25T14:53:34.813Z.
 
@@ -152,9 +162,65 @@ Why this is not N = 5 as DESIGN 10.2 expected: that expectation used the worst-c
 
 No pass rate, delta, verdict or comparison payload was read before this section was written (the compare endpoint was not called; the trial list was fetched once to look at the event shape of a trace, and its `passed` values were not read).
 
-### Next action (interim)
+What happened after N was written, in order: 51a181c (this section's first half) was committed; then `GET compare?persist=1` (comparison run `01M5STJJ4S53KD0KKACEQRH5V6`, stats 1.0.0, policy `excluded`), the export, `analyze.mjs`, `judge:sample -- --n 30`; f147871 committed the results, the sample and the DESIGN drafts; then the secondary experiment (started 2026-10-25T15:30:08Z, finished 16:02:34Z, 32.4 minutes) and the gates.
 
-Open Compare with `?persist=1`, export, run `experiments/p5/analyze.mjs`, `judge:sample -- --n 30`, and stop for the labels.
+### Verified
+
+| Gate | Result |
+|---|---|
+| 1 Harness | No code was changed, so no suite changed. The suites of the code the run used (`cb7a46d`) are N of N in the containers, row 2. Mutation test: not applicable (no code); the statistic that carries the verdict was already mutation-tested in P3 (the claim query) and P4 (the noise rule in the UI). |
+| 2 Audit (containers, `p5run`, images built from `cb7a46d`) | `docker compose exec api npm test`: exit 0, `Test Suites: 1 skipped, 34 passed, 34 of 35 total`, `Tests: 3 skipped, 619 passed, 622 total` (the 3 skipped are the stub walk, no Python in the api image), 619 of 619 that can run. `docker compose exec worker pytest -q -rf`: exit 0, `606 passed, 27 skipped` in 624.53 s, 0 failed. Both numbers equal the P3 close-out (the P4 and P5 phases did not change either side). The web image built with exit 0 (its build stage runs the Vitest suite and `npm run build`, P4). |
+| 3 Typecheck and build | `docker compose exec api npx tsc --noEmit -p tsconfig.json`: exit 0, no output. `docker compose -p p5run build api worker web` (classic builder) built all 3 images from the `git archive` of `cb7a46d`, exit 0. |
+| 4 The walk | **Partly done.** Checked in the stack: `docker compose exec api npm run tasks:lint` (the README's add-a-task command) printed `22 task(s) and 1 memory fixture(s) OK`; the README's worker test path (`tests/test_adapter_conformance.py` from `/app/worker`) was read off the container's working directory; **Not done:** a fresh clone with `docker compose up` (it would replace the default stack another session uses), opening the committed experiment by id on such a stack (impossible: there is no import endpoint, see Found 5), and the timed run of VIDEO.md. The 3 trajectories named in DESIGN 10.4 were opened as data in the export and every named event was checked against it (`mem-01` off `01M5SRTYYFKEFMG9GHK40QFHQF` events 3 to 45 and its grader `extracted: unknown:unknown`; seeded `...QG` events 0, 1, 4, 5; `dis-02` `01M5SRTYY6R7KHEJ98VH07GYVQ` events 0, 5, 8; `det-05` `01M5SRTYYG1J2AHXZX6RS871CE` events 5, 8, 15), not in a browser. |
+| 5 Live | Both exports parse and `comparison_runs[0].result` equals a fresh `GET compare?persist=0` field for field (`fetch-results.mjs` prints `true` for both, same seed and stats version): primary `01M5SRTYPNZ9EWV1HX8KJGX40N` and secondary `01M5STXWYMRDGQFJ47DNK5Y83S`. Both are pre-kappa (policy `excluded`); the re-export after kappa replaces them. |
+
+**The run, in numbers** (all from the committed exports; DESIGN 10.4, 10.5 and 12.2 have the tables):
+
+- Primary: 132 trials, 132 done, 0 errored, 0 cancelled, 0 retried by the scheduler, 0 with `rate_limit_events`; exit reasons 124 `completed`, 6 `max_steps`, 2 `invalid_tool_call`. Pilot s2 = 0.0606, h(3) = 0.0840, chosen N = 3. Headline over the 17 non-judged tasks (policy `excluded` until kappa): A (off) 0.667, B (seeded) 0.980, delta (A - B) -0.314, 95% CI [-0.549, -0.098], `B_better`, min detectable 0.225. `memory_dependent` (5 of 6 tasks): 0.000 against 1.000 (0 of 15 against 15 of 15), delta -1.000. `memory_distractor` [0, 0], neutral [-0.125, 0.125], honesty [-0.333, 0], all `noise`. Sign test A 1, B 7, 9 tied, p = 0.0703. Per call the memory block adds 1,136 input tokens (H3 assumed about 800); per trial the seeded config used 22,842 input tokens against 27,068 and cost 0.000437 against 0.000523 USD.
+- Secondary (model-a against model-b, memory off, 17 tasks): 0.745 against 0.667, delta +0.078, CI [0.000, 0.176], `noise`, min detectable 0.088. `mem-05-lint` passed 2 of 3 under model-a (discoverable from `lint.py`, and both passing trials also read `spec.json`).
+- Spend: primary 0.0634 USD candidates + 0.0141 judge = 0.0775; secondary 0.0460 + 0.0150 = 0.0610 (a floor, Found 3); both 0.139 USD. The card's 25 USD stop was never close.
+- Stop conditions of card section 9: none reached. The pilot did not show every memory-dependent task at one pass rate (0 against 1); 0 of 264 trials errored; kappa is pending; spend 0.139 USD.
+
+### Cut on purpose
+
+- **The 30 labels, `judge:kappa`, and everything that depends on kappa**: the headline over 22 tasks, `neutral_judged` and `mem-06`, the 5 missing per-task rows, DESIGN 10.4 "Judge validation" and the conclusion's judged parts. They are marked PENDING KAPPA and wait for the owner's `labels.jsonl`.
+- **`extend`**: not called, because the rule gave N = 3 (N decision above).
+- The fresh-clone README walk and the timed VIDEO.md run (gate 4), and the recording (the owner's).
+- Any change to code or to the UI; no defect was found that needed one. Not built: a restore script for `p5run-db-pre-kappa.sql.gz` (the commands are in `experiments/p5/README.md` terms, and the restore was tested by hand).
+
+### Found but not fixed
+
+1. **Hermes retries are invisible in totals and one notice blames the wrong cause.** 30 `api_call` events (28 `retry`, 2 `error`), no HTTP status, 0 tokens, in 11 of 132 primary trials (8 off, 3 seeded); 18 events in 7 of 132 secondary trials. In 2 primary and 2 secondary trials Hermes gave up after 5 and the notice "The model's reply was cut off ... output length limit" became the graded `final_response`, exit reason `invalid_tool_call`, although the events show no output. The primary's `hon-01` off pass rate (0.67) and with it the honesty group's -0.167 come from this one trial (`01M5SRTYY6R7KHEJ98VH07GYVR`). The HTTP-status rule (P2 ruling 1) does not see it, because no status is attached; the P2 safeguard of counting scored `agent_error` trials without status finds 0 here because these trials end as `invalid_tool_call`. DESIGN 13.9.
+2. **The confinement gap was exercised (DESIGN 13.6, now 13.13).** 7 of 66 `claude-haiku-5.5` trials opened `/work/trials/<id>/1/spec.json` (the graders) and 10 named `hermes_home`. `gpt-oss-20b` opened `spec.json` in 0 of 198 trials. The primary experiment is clean on this point (0 reads of `spec.json`, 1 listing of `hermes_home` whose `memories/` was empty); the secondary's memory-dependent and `trace_check` results under model-a are not. `analyze.mjs` first matched `../spec.json` only and missed absolute paths; it was fixed and rerun on both exports.
+3. **Cached tokens are priced at 0 (P1 found 4, now 13.14).** The secondary run had cache hits for both configs (1,223,265 and 699,574 tokens over 66 trials each), the primary none, for the same model-b config run 8 minutes apart: routing is not pinned. `cost_usd` there is a floor and the ceiling (cached tokens at the full input price) is up to 6.2 times higher for model-a. The cost half of HS2 cannot be judged from the platform's number. `harness_cost_usd` (Hermes's estimate) is 32 percent above the platform's figure in the primary (0.0835 against 0.0634) and was not explained.
+4. **N = 3, not the expected 5.** DESIGN 10.2 and 9.7 still say "expected 5" (pre-registered text, left as written). The pilot endpoint tries every integer from 3 to 8, the card says {3, 5, 8}; both give 3 here. Resolution: 2-task groups can take few values, `min_detectable` says what they could see (13.10).
+5. **No import endpoint, and the data's only live copy is the volume `p5run_dbdata`.** `experiments/results/*.json` is the record but cannot be loaded; `p5run-db-pre-kappa.sql.gz` can (restore into a fresh `postgres:16`, tested). The kappa row and any re-export live in the volume only until a new dump is taken. The stack is outside the repo (`C:\hx\p5src`, made by hand from `git archive cb7a46d` with 3 edits to `docker-compose.yml`, recipe in `experiments/p5/README.md`), so "follow the README from a fresh clone and open the experiment by id" (gate 4) does not hold for this data.
+6. **The committed exports are pre-kappa and contain every judge verdict.** They (and DESIGN 10.4 and 10.5, which withhold the judged rows) are unblinding for the labeler if opened early. The compare numbers in them apply policy `excluded`; after kappa `fetch-results.mjs` overwrites the files of the same names.
+7. **The pilot stack runs the P4 images.** P6's migration `0003` (failure categories) is not applied there, so its Compare page has no failure table and the trial page no category; P6's STATE section (Found 6) has the upgrade steps. Doing it while labels are pending is safe (no run is active); do it once, then `failures:backfill`.
+8. **H3's size of the memory block was off** (800 assumed, 1,136 measured, fixture files 881 characters against "about 2,000"); DESIGN 10.1 is pre-registered text and was left as written, 10.4 states the measurement.
+9. **Gate 4's timed run of VIDEO.md did not happen.** The script's time marks are an allocation, not a measurement.
+10. **ESLint, Prettier and `npm audit` were not run.** The new scripts are plain `.mjs` files without tests: `fetch-results.mjs` ends with a self-check (gate 5), the other four have none.
+11. **The default compose stack (`agent-evals-harness`, ports 3000 and 8080) holds the P1 to P4 rows and stopped when Docker Desktop was closed; it was not touched.**
+
+### Assumptions resolved
+
+- **A-10** (token volume per trial): measured. Estimate 6 calls, 6,000 input and 300 output tokens per call, 36,000 input and 1,800 output tokens per trial. Measured (132 primary trials): 4.42 calls, 5,650 input and 78 output tokens per call, 24,955 input and 344 output tokens per trial; 3,294,030 input and 45,433 output tokens in all; spend 0.0634 USD for the candidates (0.107 USD predicted at the same prices) and 0.0141 USD for the judge. DESIGN 12.2 has the table.
+- **A-7** (auxiliary call tokens): still partly. Hermes's own estimate is 32 percent above ours in the primary and 2.4 times (model-a) and 1.1 times (model-b) in the secondary; retried calls carry no tokens (Found 1). Whether auxiliary calls exist was not isolated.
+- **Card section 10 defaults:** Q1 moot (the rule gave N = 3, projected spend far under 15 USD). Q2 used: trajectory 1 the `memory_dependent` fail/pass pair, 2 a `memory_distractor` trial (both configs tied, so the seeded one that could have gone wrong), 3 the only delta outside the memory category in A's favour (`det-05`), because the largest delta outside memory is a judged task. Q3 applied: the primary was `completed` and spend was under 10 USD, so the secondary was run (DESIGN 10.5). Q4 not applicable.
+- **Pre-registered hypotheses:** H1 holds on the 5 non-judged memory tasks; H2 is not contradicted at this resolution; H3 holds per call and not per trial (DESIGN 10.4). HS1 is false for `mem-05`; HS2 holds in direction (DESIGN 10.5).
+- **Decision on P2 found 1** (scored trials without HTTP status): no change; count and report. Result: 0 such trials; the related case is Found 1 above.
+
+### Next action
+
+The owner:
+
+1. **Label.** Read only `experiments/judge-validation/sample.jsonl` (30 lines, each with the task prompt, the rubric and the text the judge saw). Write `experiments/judge-validation/labels.jsonl`, 1 object per line: `{"trial_id": "...", "grader_index": 0, "human_passed": true, "labeler": "author"}` (`human_passed` is true only when every rubric criterion is met; format in `experiments/judge-validation/README.md`). Do not open the Compare or trial pages for `jdg-01` to `jdg-04` and `mem-06`, `experiments/results/`, or the judged rows of DESIGN 10.4 and 10.5 until the file is committed.
+2. **Kappa.** `docker compose -p p5run -f C:/hx/p5src/docker-compose.yml exec api npm run judge:kappa` (set `DOCKER_BUILDKIT=0` and `COMPOSE_BAKE=false` first). It prints agreement, kappa, the 95% interval and the policy. If kappa is below 0.4: do not re-label (card section 9); the `excluded` headline stands and the judged tasks go in a separate table.
+3. **Re-export and fill in.** `node experiments/p5/fetch-results.mjs 01M5SRTYPNZ9EWV1HX8KJGX40N` and the same for `01M5STXWYMRDGQFJ47DNK5Y83S`; `node experiments/p5/analyze.mjs experiments/results/<id>.json --reveal-judged`; replace every PENDING KAPPA in DESIGN 10.4 and 10.5 (headline over 22 tasks, 22-row per-task table, `neutral_judged`, the `mem-06` part of H1, the judged leak counts, kappa with its interval); take a new dump (`pg_dump` as in `experiments/p5/README.md`) and replace `p5run-db-pre-kappa.sql.gz`; commit.
+4. **Optional, P6:** upgrade `p5run` (Found 7) and run `failures:backfill` once more after `judge:kappa`.
+5. **Video:** record after step 3 on the `p5run` stack (<http://localhost:8280>), following `VIDEO.md`; time it and write the duration here. Do not run `down -v` on `p5run`.
+
+To get the stack back after a reboot: set the Docker variables, `docker compose -p p5run -f C:/hx/p5src/docker-compose.yml up -d`, `ps`. If `C:\hx\p5src` is gone, rebuild it as in `experiments/p5/README.md` and restore the dump into the new `db`.
 
 ---
 
