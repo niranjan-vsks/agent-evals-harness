@@ -61,12 +61,18 @@ services:
       retries: 20
 
   web:
+    # The build stage runs the Vitest suite, the typecheck and the Vite build; nginx then serves dist/ and proxies /api/* to api:3000.
     build: ./web
     depends_on:
       api:
         condition: service_healthy
     ports:
       - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   dbdata:

@@ -1,0 +1,80 @@
+/* One desktop layout, system fonts, no design system (cards/P4.md section 0 and section 10 item 4). */
+:root {
+  --fg: #1c1e21;
+  --muted: #5f6672;
+  --line: #d6d9de;
+  --bg: #ffffff;
+  --bg-soft: #f4f5f7;
+  --link: #0b57d0;
+  --good: #0f7b3f;
+  --bad: #b3261e;
+  --warn: #8a5a00;
+  --good-bg: #e3f4ea;
+  --bad-bg: #fbe7e5;
+  --warn-bg: #fff2d6;
+  --info-bg: #e5eefc;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+a { color: var(--link); }
+h1 { font-size: 20px; margin: 0 0 12px; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+h3 { font-size: 14px; margin: 14px 0 6px; }
+.mono, code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+.topbar { display: flex; align-items: center; gap: 20px; padding: 8px 20px; border-bottom: 1px solid var(--line); background: var(--bg-soft); }
+.topbar nav { display: flex; gap: 14px; }
+.topbar .brand { font-weight: 600; }
+.topbar .spacer { flex: 1; }
+.topbar input { width: 160px; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px 20px 60px; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--bg-soft); font-weight: 600; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+input, select, textarea, button { font: inherit; }
+input[type='text'], input[type='number'], select, textarea { padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
+textarea { width: 100%; min-height: 70px; }
+button { padding: 4px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg-soft); color: var(--fg); cursor: pointer; }
+button:hover:not(:disabled) { background: #e8eaee; }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--link); border-color: var(--link); color: #fff; }
+
+.form-grid { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px; align-items: start; max-width: 760px; }
+.form-grid > label { padding-top: 5px; font-weight: 600; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; background: var(--bg); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+
+.chip, .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; background: var(--bg-soft); border: 1px solid var(--line); white-space: nowrap; }
+.chip-running, .chip-queued, .chip-pending { background: var(--info-bg); }
+.chip-completed, .chip-done { background: var(--good-bg); color: var(--good); }
+.chip-partial, .chip-paused { background: var(--warn-bg); color: var(--warn); }
+.chip-errored { background: var(--bad-bg); color: var(--bad); }
+.chip-cancelled, .chip-draft { background: var(--bg-soft); color: var(--muted); }
+.badge-good { background: var(--good-bg); color: var(--good); }
+.badge-warn { background: var(--warn-bg); color: var(--warn); }
+.badge-bad { background: var(--bad-bg); color: var(--bad); }
+
+.error { border: 1px solid var(--bad); background: var(--bad-bg); color: var(--bad); border-radius: 4px; padding: 8px 12px; margin: 8px 0; }
+.error ul { margin: 4px 0 0; padding-left: 20px; }
+.notice { border: 1px solid var(--line); background: var(--info-bg); border-radius: 4px; padding: 8px 12px; margin: 8px 0; }
+.warn { border: 1px solid var(--warn); background: var(--warn-bg); color: var(--warn); border-radius: 4px; padding: 8px 12px; margin: 8px 0; }
+
+.pass { color: var(--good); font-weight: 600; }
+.fail { color: var(--bad); font-weight: 600; }
+.verdict { font-size: 16px; font-weight: 600; }
