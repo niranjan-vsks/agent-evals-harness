@@ -169,12 +169,14 @@ export type FailureCategory =
   | 'step_exhaustion'
   | 'timeout'
   | 'hallucinated_tool_args'
-  | 'wrong_tool'
+  | 'wrong_tool_usage'
   | 'tool_error_unrecovered'
   | 'no_final_answer'
   | 'gave_up_early'
+  | 'judge_criteria_unmet'
   | 'grader_disagreement'
   | 'memory_ignored'
+  | 'abstained'
   | 'wrong_answer';
 
 /** trial.failure_evidence (api/src/failures/rules.ts): the rule that matched and the trace event or grader it used. */

@@ -67,7 +67,7 @@ describe('GET /experiments/:id/compare and /pilot (P3 S4)', () => {
       const body = (await get(`/experiments/${ex.id}/compare?a=${cfgA}&b=${cfgB}`).expect(200)).body;
       expect(body.failures.a).toMatchObject({ step_exhaustion: 2, memory_ignored: 0, wrong_answer: 0 });
       expect(body.failures.b).toMatchObject({ step_exhaustion: 0, memory_ignored: 1, wrong_answer: 1 });
-      expect(Object.keys(body.failures.a)).toHaveLength(10);
+      expect(Object.keys(body.failures.a)).toHaveLength(12);
       expect(body.failures.uncategorized).toEqual({ a: 0, b: 0 });
       const row = (task: string) => body.per_task.find((r: { task_id: string }) => r.task_id === task);
       expect([row(PLAIN[0]).failure_category_a, row(PLAIN[0]).failure_category_b]).toEqual(['step_exhaustion', null]);

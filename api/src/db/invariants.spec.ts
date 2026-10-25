@@ -203,13 +203,13 @@ describe('database invariants', () => {
       await insertTrial(pool, base, exp, { index: 4, status: 'done', passed: true, exitReason: 'completed' });
     });
 
-    it('only accepts the 10 categories of the card', async () => {
+    it('only accepts the 12 categories', async () => {
       const exp = await insertExperiment(pool);
       const bad = await sqlState(insertTrial(pool, base, exp, { status: 'done', passed: false, exitReason: 'completed', failureCategory: 'because', failureEvidence: EVIDENCE }));
       expect(bad?.code).toBe(INVALID_ENUM); // not a label of the enum
       const labels = await pool.query(`SELECT unnest(enum_range(NULL::failure_category))::text AS label`);
       expect(labels.rows.map((r) => r.label)).toEqual([
-        'step_exhaustion', 'timeout', 'hallucinated_tool_args', 'wrong_tool', 'tool_error_unrecovered', 'no_final_answer', 'gave_up_early', 'grader_disagreement', 'memory_ignored', 'wrong_answer',
+        'step_exhaustion', 'timeout', 'hallucinated_tool_args', 'wrong_tool_usage', 'tool_error_unrecovered', 'no_final_answer', 'gave_up_early', 'judge_criteria_unmet', 'grader_disagreement', 'memory_ignored', 'abstained', 'wrong_answer',
       ]); // prettier-ignore
     });
 

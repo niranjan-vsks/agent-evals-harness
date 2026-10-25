@@ -103,8 +103,8 @@ describe('TrialView failure category', () => {
   it('a grader link scrolls to that grader result', async () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll as never;
-    const ev = evidence({ rule: 4, category: 'wrong_tool', detail: 'trace_check tool_called failed', grader_index: 0, assertion_index: 0 });
-    const w = await mountView(failed('wrong_tool', ev));
+    const ev = evidence({ rule: 4, category: 'wrong_tool_usage', detail: 'trace_check tool_called failed', grader_index: 0, assertion_index: 0 });
+    const w = await mountView(failed('wrong_tool_usage', ev));
     expect(sec(w, 'failure-evidence').find('[data-test="evidence-event"]').exists()).toBe(false);
     await sec(w, 'failure-evidence').find('[data-test="evidence-grader"]').trigger('click');
     await flushPromises();

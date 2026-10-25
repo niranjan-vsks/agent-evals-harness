@@ -105,12 +105,14 @@ enum FailureCategory {
   step_exhaustion
   timeout
   hallucinated_tool_args
-  wrong_tool
+  wrong_tool_usage
   tool_error_unrecovered
   no_final_answer
   gave_up_early
+  judge_criteria_unmet
   grader_disagreement
   memory_ignored
+  abstained
   wrong_answer
 
   @@map("failure_category")

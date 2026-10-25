@@ -113,7 +113,7 @@ describe('failures:backfill on a database that predates 0003_failure_category', 
 
     await insertTrial('judged', { task: 'jdg-01-summary', index: 0 });
     await trace(trial.judged, [MSG, { kind: 'tool_call', step: 1, call_id: 'c', tool: 'files', args: {} }, { kind: 'tool_result', call_id: 'c', output: 'ok', is_error: false }], 'a summary');
-    await grader(trial.judged, 0, 'llm_judge', false, { criteria: [] });
+    await grader(trial.judged, 0, 'llm_judge', false, { criteria: [{ id: 'c1', met: true }, { id: 'c2', met: false }] });
 
     await insertTrial('other-exp', { exp: ids.expB, task: 'det-01-count', index: 0, exit: 'timeout' });
     await trace(trial['other-exp'], [MSG], null);
@@ -162,14 +162,14 @@ describe('failures:backfill on a database that predates 0003_failure_category', 
     const r = await backfill(prisma, {});
     expect(r).toMatchObject({ examined: 5, updated: 4, unchanged: 1, constraintValidated: true, dryRun: false });
     const got = Object.fromEntries(await Promise.all(['maxsteps', 'wrong', 'ignored', 'judged', 'other-exp'].map(async (k) => [k, (await row(trial[k])).failure_category])));
-    expect(got).toEqual({ maxsteps: 'step_exhaustion', wrong: 'wrong_answer', ignored: 'memory_ignored', judged: 'wrong_answer', 'other-exp': 'timeout' });
+    expect(got).toEqual({ maxsteps: 'step_exhaustion', wrong: 'wrong_answer', ignored: 'memory_ignored', judged: 'judge_criteria_unmet', 'other-exp': 'timeout' });
     expect((await row(trial.maxsteps)).failure_evidence).toMatchObject({ rule: 1, category: 'step_exhaustion' });
-    expect((await row(trial.ignored)).failure_evidence).toMatchObject({ rule: 9, event_seq: 1, grader_index: 0 });
+    expect((await row(trial.ignored)).failure_evidence).toMatchObject({ rule: 10, event_seq: 1, grader_index: 0 });
     expect(await row(trial.passed)).toEqual({ failure_category: null, failure_evidence: null });
     expect(await row(trial.pending)).toEqual({ failure_category: null, failure_evidence: null });
     expect(await validated()).toBe(true);
-    expect(r.totals).toMatchObject({ step_exhaustion: 1, wrong_answer: 2, memory_ignored: 1, timeout: 1 });
-    expect(r.wrongAnswerShare).toBeCloseTo(2 / 5, 12);
+    expect(r.totals).toMatchObject({ step_exhaustion: 1, wrong_answer: 1, judge_criteria_unmet: 1, memory_ignored: 1, timeout: 1 });
+    expect(r.wrongAnswerShare).toBeCloseTo(1 / 5, 12);
   });
 
   it('prints a histogram per experiment and config', async () => {
@@ -178,8 +178,8 @@ describe('failures:backfill on a database that predates 0003_failure_category', 
     expect(byConfig).toEqual({ 'A/memory off': 3, 'A/memory seeded': 1, 'B/memory off': 1 });
     const text = formatReport(r);
     expect(text).toContain('5 failed trial(s) examined, 0 updated, 5 unchanged');
-    expect(text).toMatch(/memory seeded\s+1(\s+0){8}\s+1\s+0\b/);
-    expect(text).toContain('wrong_answer is 40.0 percent of the failures');
+    expect(text).toMatch(/memory seeded\s+1(\s+0){9}\s+1(\s+0){2}/);
+    expect(text).toContain('wrong_answer is 20.0 percent of the failures');
     expect(text).not.toContain('STOP CONDITION');
     expect(text).toContain('constraint trial_failure_category_iff_failed is validated');
   });
@@ -192,15 +192,15 @@ describe('failures:backfill on a database that predates 0003_failure_category', 
   });
 
   it('applies a judge label that arrived after ingest: the failed llm_judge trial becomes grader_disagreement', async () => {
-    expect((await row(trial.judged)).failure_category).toBe('wrong_answer');
+    expect(await row(trial.judged)).toMatchObject({ failure_category: 'judge_criteria_unmet', failure_evidence: { rule: 8, detail: 'the llm_judge grader failed: criteria c2 not met' } });
     await pool.query(`INSERT INTO judge_label (id, trial_id, grader_index, human_passed, labeler) VALUES ($1, $2, 0, true, 'author')`, [ulid(), trial.judged]);
     const r = await backfill(prisma, {});
     expect(r.updated).toBe(1);
-    expect(await row(trial.judged)).toMatchObject({ failure_category: 'grader_disagreement', failure_evidence: { rule: 8, grader_index: 0 } });
+    expect(await row(trial.judged)).toMatchObject({ failure_category: 'grader_disagreement', failure_evidence: { rule: 9, grader_index: 0 } });
     // and the label going the other way returns it
     await pool.query(`UPDATE judge_label SET human_passed = false WHERE trial_id = $1`, [trial.judged]);
     await backfill(prisma, {});
-    expect((await row(trial.judged)).failure_category).toBe('wrong_answer');
+    expect((await row(trial.judged)).failure_category).toBe('judge_criteria_unmet');
   });
 
   it('flags the stop condition when more than half of the failures are wrong_answer', async () => {
@@ -217,7 +217,7 @@ describe('failures:backfill on a database that predates 0003_failure_category', 
     expect(one.samples.step_exhaustion[0]).toMatchObject({ trialId: trial.maxsteps, category: 'step_exhaustion', exitReason: 'max_steps' });
     expect(one.samples.memory_ignored[0]).toMatchObject({ trialId: trial.ignored, eventSeq: 1, graderIndex: 0 });
     const all = await backfill(prisma, { sample: 5 });
-    expect(all.samples.wrong_answer).toHaveLength(2); // fewer than asked: all of them
+    expect(all.samples.wrong_answer).toHaveLength(1); // fewer than asked: all of them
     expect(formatReport(all)).toContain('sample of memory_ignored:');
   });
 });

@@ -42,7 +42,12 @@ const traceCheck = (index: number, assertions: Array<{ kind: string; passed: boo
   passed: assertions.every((a) => a.passed),
   details: { assertions: assertions.map((a) => ({ assertion: { kind: a.kind }, passed: a.passed, reason: a.reason ?? '' })) },
 });
-const judge = (index: number, passed = false): FailureGrader => ({ grader_index: index, grader_type: 'llm_judge', passed, details: {} });
+const judge = (index: number, passed = false, criteria?: Array<{ id: string; met: boolean }>): FailureGrader => ({
+  grader_index: index,
+  grader_type: 'llm_judge',
+  passed,
+  details: criteria ? { criteria } : {},
+});
 
 /** A run that looked at the fixture, answered with a FINAL line and was simply wrong: the shape that must stay `wrong_answer`. */
 const plainWrong = (): Part[] => [user(), api(1), call(1, 'a', 'files', { path: '.' }), result('a', 'data.csv'), api(2), answer(2, 'FINAL: 7')];
@@ -147,19 +152,19 @@ describe('rule 3: hallucinated_tool_args', () => {
   });
 });
 
-describe('rule 4: wrong_tool', () => {
+describe('rule 4: wrong_tool_usage', () => {
   it('matches a failed trace_check tool_called assertion, and points at the assertion', () => {
     const g = traceCheck(1, [
       { kind: 'tool_called', passed: false, reason: '0 call(s) of shell' },
       { kind: 'max_steps', passed: true },
     ]);
     const r = categorize(trial(), trace(plainWrong()), [exact(0, 'FAIL', true), g]);
-    expect(r.category).toBe('wrong_tool');
+    expect(r.category).toBe('wrong_tool_usage');
     expect(r.evidence).toMatchObject({ rule: 4, grader_index: 1, assertion_index: 0 });
   });
   it('matches a failed tool_not_called assertion', () => {
     const g = traceCheck(0, [{ kind: 'tool_not_called', passed: false }]);
-    expect(categorize(trial(), trace(plainWrong()), [g]).category).toBe('wrong_tool');
+    expect(categorize(trial(), trace(plainWrong()), [g]).category).toBe('wrong_tool_usage');
   });
   it('does not match a trace_check that failed only on max_steps', () => {
     const g = traceCheck(0, [
@@ -198,6 +203,35 @@ describe('rule 5: tool_error_unrecovered', () => {
   it('does not match a trace with no tool result at all', () => {
     const parts = [user(), api(1), answer(1, 'FINAL: 7')];
     expect(categorize(trial({ taskFixtureDir: null }), trace(parts), [exact()]).category).toBe('wrong_answer');
+  });
+  describe('the output must read as an error, not only carry is_error', () => {
+    const lastResult = (output: string) => [user(), api(1), call(1, 'a', 'shell', { command: 'grep x f' }), result('a', output, true), api(2), answer(2, 'FINAL: 7')];
+    const cat = (output: string) => categorize(trial(), trace(lastResult(output)), [exact()]).category;
+
+    it('a grep that found nothing is not an error, however Hermes flags it', () => {
+      const noMatch = '{"output": "", "exit_code": 1, "error": null, "exit_code_meaning": "No matches found (not an error)"}';
+      expect(cat(noMatch)).toBe('wrong_answer');
+    });
+    it('a non-zero exit with output and "error": null is not an error either (a lint finding)', () => {
+      expect(cat('{"output": "src/app.py:9: line too long (123 > 79)\\nFAIL", "exit_code": 1, "error": null}')).toBe('wrong_answer');
+    });
+    it('matches the outputs real tools give when they fail', () => {
+      for (const output of [
+        '{"content": "", "total_lines": 0, "error": "Cannot read the path: not a regular file", "not_found": false}',
+        '{"total_count": 0, "error": "Path not found: docs"}',
+        '{"output": "Traceback (most recent call last):\\n  File <stdin>, line 3\\nIndexError: list index out of range", "exit_code": 1, "error": null}',
+        '{"output": "/usr/bin/bash: line 5: file: command not found", "exit_code": 127, "error": null}',
+        '{"output": "ls: cannot access /etc/cron.d: No such file or directory", "exit_code": 2, "error": null}',
+        "error: unknown tool 'shell'",
+        'error: FileNotFoundError: No such file or directory',
+      ]) {
+        expect(cat(output)).toBe('tool_error_unrecovered');
+      }
+    });
+    it('a result without is_error is never this category, whatever it says', () => {
+      const parts = [user(), api(1), call(1, 'a', 'shell', { command: 'x' }), result('a', 'error: boom', false), api(2), answer(2, 'FINAL: 7')];
+      expect(categorize(trial(), trace(parts), [exact()]).category).toBe('wrong_answer');
+    });
   });
 });
 
@@ -245,33 +279,61 @@ describe('rule 7: gave_up_early', () => {
   });
 });
 
-describe('rule 8: grader_disagreement', () => {
+describe('rule 8: judge_criteria_unmet', () => {
+  const labels = (humanPassed: boolean, graderIndex = 1): FailureLabel[] => [{ graderIndex, humanPassed }];
+  it('matches a failed llm_judge with no label, and names the criteria it did not meet', () => {
+    const j = judge(1, false, [
+      { id: 'c1', met: true },
+      { id: 'c2', met: false },
+      { id: 'c3', met: false },
+    ]);
+    const r = categorize(trial(), trace(plainWrong(), 'a summary'), [fileState(0, true), j], []);
+    expect(r.category).toBe('judge_criteria_unmet');
+    expect(r.evidence).toMatchObject({ rule: 8, grader_index: 1 });
+    expect(r.evidence.detail).toBe('the llm_judge grader failed: criteria c2, c3 not met');
+  });
+  it('matches when the judge agrees with the human label, and when the judge records no criteria', () => {
+    expect(categorize(trial(), trace(plainWrong(), 'a bad summary'), [judge(1)], labels(false)).category).toBe('judge_criteria_unmet');
+    expect(categorize(trial(), trace(plainWrong()), [judge(1)], []).evidence.detail).toBe('the llm_judge grader failed and records no unmet criterion');
+  });
+  it('does not match when a human label says the trial passed (that is grader_disagreement, next)', () => {
+    expect(categorize(trial(), trace(plainWrong(), 'a good summary'), [judge(1)], labels(true)).category).toBe('grader_disagreement');
+  });
+  it('does not match when the judge passed, or when there is no llm_judge grader', () => {
+    expect(categorize(trial(), trace(plainWrong()), [judge(1, true), fileState(0)], []).category).toBe('wrong_answer');
+    expect(categorize(trial(), trace(plainWrong()), [fileState(0)], []).category).toBe('wrong_answer');
+  });
+  it('comes after the rules for a missing answer: an empty reply to a judged task is no_final_answer', () => {
+    expect(categorize(trial(), trace(plainWrong(), ''), [judge(1)], []).category).toBe('no_final_answer');
+  });
+});
+
+describe('rule 9: grader_disagreement', () => {
   const labels = (humanPassed: boolean, graderIndex = 1): FailureLabel[] => [{ graderIndex, humanPassed }];
   it('matches a failed llm_judge whose human label says passed', () => {
     const r = categorize(trial(), trace(plainWrong(), 'a good summary'), [fileState(0, true), judge(1)], labels(true));
     expect(r.category).toBe('grader_disagreement');
-    expect(r.evidence).toMatchObject({ rule: 8, grader_index: 1 });
+    expect(r.evidence).toMatchObject({ rule: 9, grader_index: 1 });
   });
-  it('does not match when the human agrees with the judge', () => {
-    expect(categorize(trial(), trace(plainWrong(), 'a bad summary'), [judge(1)], labels(false)).category).toBe('wrong_answer');
+  it('does not match when the human agrees with the judge (judge_criteria_unmet takes it)', () => {
+    expect(categorize(trial(), trace(plainWrong(), 'a bad summary'), [judge(1)], labels(false)).category).toBe('judge_criteria_unmet');
   });
-  it('does not match without a label, or with a label on another grader', () => {
-    expect(categorize(trial(), trace(plainWrong()), [judge(1)], []).category).toBe('wrong_answer');
-    expect(categorize(trial(), trace(plainWrong()), [judge(1), judge(2, true)], labels(true, 2)).category).toBe('wrong_answer');
+  it('does not match a label that sits on a grader that did not fail', () => {
+    expect(categorize(trial(), trace(plainWrong()), [judge(1, true), judge(2, true)], labels(true, 2)).category).toBe('wrong_answer');
   });
   it('does not match when the judge passed and a different grader failed', () => {
     expect(categorize(trial(), trace(plainWrong()), [judge(1, true), fileState(0)], labels(true)).category).toBe('wrong_answer');
   });
 });
 
-describe('rule 9: memory_ignored', () => {
+describe('rule 10: memory_ignored', () => {
   const seed = { 'MEMORY.md': 'Service owners: ingest is owned by Marco, billing by Priya.\n§\nStaging: pg-stage-07.internal:6432' };
   const memTrial = (o: Partial<FailureTrial> = {}) => trial({ taskCategory: 'memory_dependent', memoryMode: 'seeded', taskFixtureDir: null, ...o });
   const run = [user(), memoryRead(), api(1), answer(1, 'FINAL: Priya')];
   it('matches a seeded memory task whose response lacks an answer the seed holds', () => {
     const r = categorize(memTrial(), trace(run, 'FINAL: Priya', seed), [exact(0, 'Marco')]);
     expect(r.category).toBe('memory_ignored');
-    expect(r.evidence).toMatchObject({ rule: 9, event_seq: 1, grader_index: 0 });
+    expect(r.evidence).toMatchObject({ rule: 10, event_seq: 1, grader_index: 0 });
   });
   it('compares case-insensitively and across whitespace', () => {
     const r = categorize(memTrial(), trace(run, 'FINAL: nope', seed), [exact(0, ['PG-STAGE-07.internal:6432'])]);
@@ -296,11 +358,54 @@ describe('rule 9: memory_ignored', () => {
   });
 });
 
-describe('rule 10: wrong_answer', () => {
+describe('rule 11: abstained', () => {
+  const said = (text: string, over: Partial<FailureTrial> = {}, graders: FailureGrader[] = [fileState()]) =>
+    categorize(trial({ taskFixtureDir: null, steps: 4, ...over }), trace(plainWrong(), text), graders);
+  it('matches the replies the P5 agents gave when they did not know, and ones that ask the user', () => {
+    for (const text of [
+      'I don’t have that information in the current workspace.  \nFINAL: Unknown',
+      "The ownership of the ingest service isn't documented in the current repository.",
+      "Could you provide the exact JSON content you'd like in config.json?",
+      'I’m not sure what the team’s standard configuration looks like. Could you provide the desired contents?',
+      'I cannot determine the host from the files I can see.',
+      'FINAL: unknown',
+      'What should the config contain?',
+    ]) {
+      const r = said(text);
+      expect(r.category).toBe('abstained');
+      expect(r.evidence.rule).toBe(11);
+    }
+  });
+  it('points at the last assistant message', () => {
+    const r = categorize(trial({ taskFixtureDir: null }), trace(plainWrong(), "I don't know."), [fileState()]);
+    expect(r.evidence).toMatchObject({ event_seq: 5 }); // plainWrong() ends with the assistant message at seq 5
+  });
+  it('does not match a confident wrong answer, a finished action, or a reply that only mentions what it did not change', () => {
+    for (const text of ['FINAL: 5', 'Renamed all .txt files to .md.', "I didn't change the file contents; the files are renamed.", 'RELEASE.md created with the release checklist.']) {
+      expect(said(text).category).toBe('wrong_answer');
+    }
+  });
+  it('does not match when the agent went on to call a tool after saying it', () => {
+    const parts = [user(), api(1), answer(1, "I don't know. Let me look."), api(2), call(2, 'a', 'files', { path: '.' }), result('a', 'data.csv'), api(3)];
+    expect(categorize(trial({ taskFixtureDir: null }), trace(parts, "I don't know."), [fileState()]).category).toBe('wrong_answer');
+  });
+  it('comes after the missing-answer rule and after memory_ignored', () => {
+    expect(said('Which ingest service are you referring to?', {}, [exact()]).category).toBe('no_final_answer'); // exact_match failed, no FINAL line
+    const seed = { 'MEMORY.md': 'ingest is owned by Marco' };
+    const run = [user(), memoryRead(), api(1), answer(1, "I don't know.")];
+    const r = categorize(trial({ taskCategory: 'memory_dependent', memoryMode: 'seeded', taskFixtureDir: null }), trace(run, "FINAL: I don't know", seed), [exact(0, 'Marco')]);
+    expect(r.category).toBe('memory_ignored');
+  });
+  it('comes after judge_criteria_unmet: a judged task whose reply ends with a question is a missed rubric', () => {
+    expect(said('Should I add a test?', {}, [judge(0, false, [{ id: 'c1', met: false }])]).category).toBe('judge_criteria_unmet');
+  });
+});
+
+describe('rule 12: wrong_answer', () => {
   it('is what is left, and names the first failed grader', () => {
     const r = categorize(trial(), trace(plainWrong()), [exact(0, '42', true), fileState(1)]);
     expect(r.category).toBe('wrong_answer');
-    expect(r.evidence).toMatchObject({ rule: 10, grader_index: 1 });
+    expect(r.evidence).toMatchObject({ rule: 12, grader_index: 1 });
   });
   it('is not given to a trial an earlier rule explains', () => {
     expect(categorize(trial({ exitReason: 'timeout' }), trace(plainWrong()), [exact()]).category).not.toBe('wrong_answer');
@@ -308,9 +413,9 @@ describe('rule 10: wrong_answer', () => {
 });
 
 describe('the rule table', () => {
-  it('has 10 rules, in the card order, ending with the rule that always matches', () => {
+  it('has 12 rules, the card order plus the 2 added ones, ending with the rule that always matches', () => {
     expect(RULES.map((r) => r.category)).toEqual([...FAILURE_CATEGORIES]);
-    expect(RULES.map((r) => r.rule)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(RULES.map((r) => r.rule)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
   it('is deterministic and does not change its inputs', () => {
     const tr = trace(plainWrong());

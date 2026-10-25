@@ -743,7 +743,7 @@ describe('failure categories (P6)', () => {
   const input = (trials: CompareTrial[], tasks: CompareTask[] = [task('t1'), task('t2')]): CompareInput => ({
     experimentId: 'exp-1', axis: 'memory', configA: A, configB: B, nTrialsPerTask: 2, tasks, trials,
   }); // prettier-ignore
-  const zero = { step_exhaustion: 0, timeout: 0, hallucinated_tool_args: 0, wrong_tool: 0, tool_error_unrecovered: 0, no_final_answer: 0, gave_up_early: 0, grader_disagreement: 0, memory_ignored: 0, wrong_answer: 0 };
+  const zero = { step_exhaustion: 0, timeout: 0, hallucinated_tool_args: 0, wrong_tool_usage: 0, tool_error_unrecovered: 0, no_final_answer: 0, gave_up_early: 0, judge_criteria_unmet: 0, grader_disagreement: 0, memory_ignored: 0, abstained: 0, wrong_answer: 0 };
 
   it('counts the failed trials of each side by category, with every category present in rule order', () => {
     const out = compare(
@@ -785,7 +785,7 @@ describe('failure categories (P6)', () => {
     const out = compare(
       input(
         [
-          failed(A.id, 't1', 0, 'wrong_tool'), failed(A.id, 't1', 1, 'wrong_tool'), ...cell(B.id, 't1', [true, true]),
+          failed(A.id, 't1', 0, 'wrong_tool_usage'), failed(A.id, 't1', 1, 'wrong_tool_usage'), ...cell(B.id, 't1', [true, true]),
           failed(A.id, 'j1', 0, 'grader_disagreement'), failed(A.id, 'j1', 1, 'grader_disagreement'), ...cell(B.id, 'j1', [true, true]),
           failed(A.id, 't3', 0, 'timeout'), // B has no scored trial for t3: unpaired
         ],
@@ -793,7 +793,7 @@ describe('failure categories (P6)', () => {
       ),
       opts({ judge: { policy: 'excluded', modelId: 'j', promptHash: 'h', kappa: null } }),
     );
-    expect(out.failures.a).toEqual({ ...zero, wrong_tool: 2 });
+    expect(out.failures.a).toEqual({ ...zero, wrong_tool_usage: 2 });
     const j = out.per_task.find((r) => r.task_id === 'j1')!;
     expect([j.judge_excluded, j.failure_category_a, j.failure_category_b]).toEqual([true, 'grader_disagreement', null]);
     expect(out.per_task.find((r) => r.task_id === 't3')).toBeUndefined(); // unpaired: no per-task row

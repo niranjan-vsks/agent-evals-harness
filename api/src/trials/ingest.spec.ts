@@ -67,7 +67,7 @@ describe('ingest', () => {
       const bad = doneResult(spec, { passed: false });
       bad.grader_results[0].passed = false;
       const r = ingest(bad, PRICE, TASK);
-      expect(r.failure).toMatchObject({ category: 'wrong_answer', evidence: { rule: 10, grader_index: 0 } });
+      expect(r.failure).toMatchObject({ category: 'wrong_answer', evidence: { rule: 12, grader_index: 0 } });
     });
 
     it('the task context reaches the rules: a seeded memory task that ignored the memory is memory_ignored', () => {
@@ -78,7 +78,7 @@ describe('ingest', () => {
       bad.trace!.final_response = 'FINAL: Priya';
       bad.trace!.events.push({ seq: 7, t_ms: 7, kind: 'memory_read', file: 'MEMORY.md', content: 'x', loaded_by: 'harness' });
       const seeded: FailureTask = { taskCategory: 'memory_dependent', taskFixtureDir: null, memoryMode: 'seeded' };
-      expect(ingest(bad, PRICE, seeded).failure).toMatchObject({ category: 'memory_ignored', evidence: { rule: 9, event_seq: 7 } });
+      expect(ingest(bad, PRICE, seeded).failure).toMatchObject({ category: 'memory_ignored', evidence: { rule: 10, event_seq: 7 } });
       expect(ingest(bad, PRICE, { ...seeded, memoryMode: 'off' }).failure?.category).toBe('wrong_answer');
     });
 

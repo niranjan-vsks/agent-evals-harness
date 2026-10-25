@@ -2,7 +2,7 @@
  * Failure categories (P6 card section 4): a cause for every `done, passed = false` trial. Pure: the rules read the trial row, the
  * trace, the grader results and the judge labels, never a model, so the same inputs always give the same category.
  *
- * RULES is an ordered list and the first rule that returns evidence wins. Rule 10 (`wrong_answer`) always matches, so categorize
+ * RULES is an ordered list and the first rule that returns evidence wins. The last rule (`wrong_answer`) always matches, so categorize
  * never fails to answer. Every rule returns the evidence it used (the trace event seq or the grader index), which the UI shows
  * the same way it shows a grader result.
  */
@@ -13,12 +13,14 @@ export const FAILURE_CATEGORIES = [
   'step_exhaustion',
   'timeout',
   'hallucinated_tool_args',
-  'wrong_tool',
+  'wrong_tool_usage',
   'tool_error_unrecovered',
   'no_final_answer',
   'gave_up_early',
+  'judge_criteria_unmet',
   'grader_disagreement',
   'memory_ignored',
+  'abstained',
   'wrong_answer',
 ] as const;
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
@@ -29,7 +31,7 @@ export function isFailureCategory(v: unknown): v is FailureCategory {
 
 /** What `trial.failure_evidence` holds: the rule that matched and the event or grader it used. */
 export interface FailureEvidence {
-  /** The rule's position in the card's table, 1 to 10. */
+  /** The rule's position in the table (STATE.md P6), 1 to 12. */
   rule: number;
   category: FailureCategory;
   /** One sentence, written for the trial page. */
@@ -110,6 +112,32 @@ export function looksLikeArgError(tool: unknown, output: unknown): boolean {
   return tool === 'shell' && TRACEBACK.test(output);
 }
 
+/**
+ * Rule 5 (architect decision after P6): what a tool result must say, besides carrying is_error, to count as an error. The output of
+ * Hermes tools is JSON text; its benign forms are removed first (`"error": null`, and the note "(not an error)" that goes with
+ * a search that found nothing), so that they are not read as the word "error".
+ */
+export const TOOL_ERROR_PATTERNS: readonly RegExp[] = [
+  /"error"\s*:\s*"[^"]/, // a non-empty error field of a Hermes file tool
+  /^\s*error\b/i, // the minimal loop's `error: ...`
+  /traceback \(most recent call last\)/i,
+  /command not found/i,
+  /no such file or directory/i,
+  /cannot access/i,
+  /permission denied/i,
+  /\bnot found\b/i,
+  /unknown tool/i,
+  /timed out/i,
+  /\bexception\b/i,
+];
+const BENIGN_ERROR_TEXT = [/"error"\s*:\s*null/g, /\(not an error\)/gi];
+
+export function looksLikeToolError(output: unknown): boolean {
+  if (typeof output !== 'string') return false;
+  const text = BENIGN_ERROR_TEXT.reduce((t, b) => t.replace(b, ''), output);
+  return TOOL_ERROR_PATTERNS.some((p) => p.test(text));
+}
+
 const stepOf = (e: TraceEventJson): number => (typeof e.step === 'number' ? e.step : Number.NaN);
 const isToolCall = (e: TraceEventJson) => e.kind === 'tool_call';
 const isAssistantMessage = (e: TraceEventJson) => e.kind === 'message' && e.role === 'assistant';
@@ -156,9 +184,32 @@ function expectedStrings(g: FailureGrader): string[] {
   return list.filter((s): s is string => typeof s === 'string' && s.trim() !== '');
 }
 
+/**
+ * Rule 11 (architect decision after P6): the final response says it does not know, or asks the user something. Matched on the text
+ * with typographic apostrophes straightened. `FINAL: unknown` counts as saying so.
+ */
+const STRAIGHTEN = new RegExp('[' + '\u2018\u2019]', 'g');
+export const ABSTAIN_PATTERNS: readonly RegExp[] = [
+  /\bi (?:do not|don't|dont) (?:have|know)\b/i,
+  /\bi(?:'m| am) not (?:sure|aware|certain)\b/i,
+  /\bi (?:cannot|can't|could not|couldn't|am unable to|'m unable to) (?:determine|find|tell|say|identify|locate)\b/i,
+  /\b(?:is|are|was|were)(?:n't| not) (?:documented|specified|available|stated|mentioned|defined)\b/i,
+  /\bunable to (?:determine|find|identify|locate)\b/i,
+  /\bFINAL:\s*(?:unknown|unsure)\b/i,
+  /\b(?:could|can|would|will) you (?:please )?(?:provide|point|tell|clarify|share|specify|confirm|let me know)\b/i,
+  /\bplease (?:provide|clarify|specify|let me know)\b/i,
+  /\bwhich [^.?!]{0,60}(?:are you referring|do you mean|did you mean)/i,
+  /\?[*_`"')\]\s]*$/, // the reply ends with a question
+];
+
+export function looksLikeAbstention(finalResponse: string | null): boolean {
+  const text = (finalResponse ?? '').replace(STRAIGHTEN, "'").trim();
+  return text !== '' && ABSTAIN_PATTERNS.some((p) => p.test(text));
+}
+
 const squash = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
-// ---------------------------------------------------------------- the rules, in the card's order
+// ---------------------------------------------------------------- the rules, in order (the card's 10, plus 2 added by the architect after P6)
 
 export const RULES: readonly Rule[] = [
   {
@@ -178,7 +229,7 @@ export const RULES: readonly Rule[] = [
   },
   {
     rule: 4,
-    category: 'wrong_tool',
+    category: 'wrong_tool_usage',
     match: (ctx) => {
       for (const g of failedGraders(ctx, 'trace_check')) {
         const list = (g.details as { assertions?: unknown }).assertions;
@@ -199,7 +250,10 @@ export const RULES: readonly Rule[] = [
     category: 'tool_error_unrecovered',
     match: ({ trace }) => {
       const last = [...trace.events].reverse().find((e) => e.kind === 'tool_result');
-      return last && last.is_error === true ? { event_seq: last.seq, detail: `the last tool result (event ${last.seq}) is an error and nothing followed it` } : null;
+      // The harness flag alone is not enough: Hermes sets is_error on any non-zero exit, including a grep that found nothing.
+      return last && last.is_error === true && looksLikeToolError(last.output)
+        ? { event_seq: last.seq, detail: `the last tool result (event ${last.seq}) is an error and nothing followed it` }
+        : null;
     },
   },
   {
@@ -223,6 +277,24 @@ export const RULES: readonly Rule[] = [
   },
   {
     rule: 8,
+    category: 'judge_criteria_unmet',
+    match: (ctx) => {
+      // A human label that says the trial passed makes this a grader_disagreement (the next rule), not a missed rubric.
+      if (ctx.labels.some((l) => l.humanPassed)) return null;
+      const judge = failedGraders(ctx, 'llm_judge')[0];
+      if (!judge) return null;
+      const criteria = (judge.details as { criteria?: unknown }).criteria;
+      const unmet = Array.isArray(criteria)
+        ? criteria.filter((c) => typeof c === 'object' && c !== null && (c as { met?: unknown }).met !== true).map((c) => String((c as { id?: unknown }).id ?? '?'))
+        : [];
+      return {
+        grader_index: judge.grader_index,
+        detail: unmet.length > 0 ? `the llm_judge grader failed: criteria ${unmet.join(', ')} not met` : 'the llm_judge grader failed and records no unmet criterion',
+      };
+    },
+  },
+  {
+    rule: 9,
     category: 'grader_disagreement',
     match: (ctx) => {
       const judge = failedGraders(ctx, 'llm_judge').find((g) => ctx.labels.some((l) => l.graderIndex === g.grader_index && l.humanPassed));
@@ -230,7 +302,7 @@ export const RULES: readonly Rule[] = [
     },
   },
   {
-    rule: 9,
+    rule: 10,
     category: 'memory_ignored',
     match: (ctx) => {
       const { trial, trace } = ctx;
@@ -250,7 +322,19 @@ export const RULES: readonly Rule[] = [
     },
   },
   {
-    rule: 10,
+    rule: 11,
+    category: 'abstained',
+    match: ({ trace }) => {
+      if (!looksLikeAbstention(trace.finalResponse)) return null;
+      // "No tool_call follows": the agent did not go on working after saying it. The last assistant message is where it said so.
+      const spoke = trace.events.filter(isAssistantMessage).map((e) => e.seq);
+      const last = spoke.length > 0 ? Math.max(...spoke) : -1;
+      if (last >= 0 && trace.events.some((e) => isToolCall(e) && e.seq > last)) return null;
+      return { ...(last >= 0 ? { event_seq: last } : {}), detail: 'the final response says it does not know, or asks the user, and no tool call follows' };
+    },
+  },
+  {
+    rule: 12,
     category: 'wrong_answer',
     match: (ctx) => {
       const first = ctx.graders.find((g) => !g.passed);

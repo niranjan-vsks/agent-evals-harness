@@ -35,17 +35,19 @@ const RULE_ORDER = [
   'step_exhaustion',
   'timeout',
   'hallucinated_tool_args',
-  'wrong_tool',
+  'wrong_tool_usage',
   'tool_error_unrecovered',
   'no_final_answer',
   'gave_up_early',
+  'judge_criteria_unmet',
   'grader_disagreement',
   'memory_ignored',
+  'abstained',
   'wrong_answer',
 ];
 
 describe('CompareView failure categories', () => {
-  it('lists the 10 categories in rule order with the counts of A and B and a total row', async () => {
+  it('lists the 12 categories in rule order with the counts of A and B and a total row', async () => {
     const w = await mountView(makeCompare({ failures: failures({ step_exhaustion: 3, wrong_answer: 2 }, { memory_ignored: 1, wrong_answer: 4 }) }));
     const table = w.get('[data-testid="failures-table"]');
     expect(table.findAll('tbody tr').map((r) => r.attributes('data-testid'))).toEqual([...RULE_ORDER.map((k) => `failure-row-${k}`), 'failure-row-total']);
@@ -91,14 +93,14 @@ describe('CompareView failure categories', () => {
       makeCompare({
         per_task: [
           perTask({ task_id: 'mem-01', failure_category_a: 'step_exhaustion', failure_category_b: null }),
-          perTask({ task_id: 'det-01', failure_category_a: null, failure_category_b: 'wrong_tool' }),
+          perTask({ task_id: 'det-01', failure_category_a: null, failure_category_b: 'wrong_tool_usage' }),
         ],
       }),
     );
     expect(tid(w, 'failure-a-mem-01')).toBe('step_exhaustion');
     expect(tid(w, 'failure-b-mem-01')).toBe('-');
     expect(tid(w, 'failure-a-det-01')).toBe('-');
-    expect(tid(w, 'failure-b-det-01')).toBe('wrong_tool');
+    expect(tid(w, 'failure-b-det-01')).toBe('wrong_tool_usage');
   });
 
   it('shows the categories of a judge-excluded task in its own table too', async () => {

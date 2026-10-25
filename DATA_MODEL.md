@@ -324,8 +324,9 @@ error_class       rate_limited | provider_error | worker_crash | grader_error | 
 attempt_result    done | errored | orphaned | cancelled
 grader_type       exact_match | file_state | unit_test | trace_check | llm_judge
 judge_policy      trusted | flagged | excluded
-failure_category  step_exhaustion | timeout | hallucinated_tool_args | wrong_tool | tool_error_unrecovered |
-                  no_final_answer | gave_up_early | grader_disagreement | memory_ignored | wrong_answer   (rule order)
+failure_category  step_exhaustion | timeout | hallucinated_tool_args | wrong_tool_usage | tool_error_unrecovered |
+                  no_final_answer | gave_up_early | judge_criteria_unmet | grader_disagreement | memory_ignored |
+                  abstained | wrong_answer   (rule order)
 ```
 
 There is deliberately no `score` float on `trial`, no `simulated` or `manual` origin, and
