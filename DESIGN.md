@@ -525,11 +525,145 @@ same UI; not required for the deliverable.
 
 ### 10.4 Results
 
-`TBD by P5`: pilot variance and chosen N; aggregate and per-category deltas with CIs;
-per-task table; cost, latency and token table; judge kappa; 2 or 3 inspected trajectories
-(1 memory-dependent pass under seeded vs fail under off, 1 distractor trial, 1 failure
-where memory was present but unused or misused); conclusion stated against H1 to H3;
-actual spend.
+**Status: draft.** Everything below is computed from `experiments/results/01M5SRTYPNZ9EWV1HX8KJGX40N.json`
+(the export with traces; `comparison_runs[0]` is comparison run `01M5STJJ4S53KD0KKACEQRH5V6`, stats version
+1.0.0) by `experiments/p5/analyze.mjs`, except the judge kappa and everything that depends on it. Those parts are
+marked **PENDING KAPPA** and are filled after `experiments/judge-validation/labels.jsonl` exists and
+`npm run judge:kappa` has run. The 5 judge-graded tasks (`jdg-01` to `jdg-04` and `mem-06`) are the 30 items the author
+labels blind (8.2), so their pass rates are deliberately not in this draft.
+
+#### The run
+
+| | |
+|---|---|
+| experiment | `01M5SRTYPNZ9EWV1HX8KJGX40N`, axis "hermes memory off vs seeded", seed 20261025 |
+| A (off) | config `01M5SRTYBWGNJH3HV8N3BHSTKH`, hash `638fcbb999c8fb535e7aa8155bc13fc148cc0bed241d0e91240c11459890ae66` |
+| B (seeded, `team-memory-v1`) | config `01M5SRTYKGT14BBXBCKFV1ANYQ`, hash `1b359ab5b8b402d225622f3bc0861813bd15b77126232645038d0aaf5b2af88e` |
+| common settings | Hermes `f4ac0bea1e`, `openai/gpt-oss-20b` (`model-b`), tools shell + files, skills off, temperature 0, `max_steps` 15, `max_output_tokens` 2048, timeout 300 s, `providers_ignored` = Darkbloom, Groq |
+| judge | `anthropic/claude-haiku-5.5` (`model-a`), prompt hash `931d22859676a58fd021856e094109ce06b40399921af7bcb84534875f68b019` |
+| tasks, N | 22 tasks, N = 3 per (task, config): 132 trials |
+| result | 132 done, 0 errored, 0 cancelled; no trial was retried by the scheduler (`attempt_count` 1 for all 132); 0 trials with `rate_limit_events`; no 429 storm |
+| time | started 2026-10-25T14:53:34Z, finished 15:22:32Z (29.0 minutes), concurrency 2 (`MAX_CONCURRENT_TRIALS`), worker bound 4 |
+| exit reasons | 124 `completed`, 6 `max_steps`, 2 `invalid_tool_call` |
+
+#### Pilot and the choice of N
+
+The pilot was run at N = 3 and its payload (`GET /experiments/:id/pilot`) was the only thing read before N was fixed;
+the numbers and the decision were committed in STATE.md before the comparison endpoint was called.
+
+| | |
+|---|---|
+| cells used | 44 of 44 (22 tasks x 2 configs, 3 done trials each) |
+| within-task variance s2 | 0.0606 (the worst case assumed in 9.7 is 0.25) |
+| h(3), h(5), h(8) with the observed s2 | 0.0840, 0.0651, 0.0514 |
+| h(3), h(5), h(8) with the 0.25 bound | 0.1706, 0.1321, 0.1045 |
+| rule | smallest N in {3, 5, 8} with h(N) <= 0.15 |
+| chosen N | **3**. The pilot is the full run; `extend` was not called |
+
+The expectation in 10.2 was N = 5. It came from the 0.25 bound. The pilot found a quarter of that variance, because most
+cells are all-pass or all-fail at temperature 0, and the pre-registered rule trusts the pilot. h(N) covers within-task noise
+only: the spread between tasks is not reduced by N and is inside the intervals below, which is why they are wider than 0.084.
+
+#### Headline comparison (judge policy `excluded`, 17 tasks, 102 scored trials)
+
+Until a `judge_validation` row exists the comparison endpoint applies policy `excluded` (8.3, D-16) and removes the 5
+judge-graded tasks from every number in this table. **PENDING KAPPA:** with `trusted` or `flagged` the headline is
+recomputed over all 22 tasks (N = 3, 132 trials) and replaces this table; with `excluded` this table stands and the
+judged tasks get their own table. Delta is A minus B, so a negative delta means the seeded config is better. 10,000
+resamples of tasks, percentile interval, seed 20261025. A zero-width interval means every task in the group has the same delta.
+
+| group | tasks | pass rate A (off) | pass rate B (seeded) | delta (A - B) | 95% CI | verdict | min detectable |
+|---|---|---|---|---|---|---|---|
+| **aggregate** | 17 | 0.667 | 0.980 | -0.314 | [-0.549, -0.098] | **B_better** | 0.225 |
+| memory_dependent | 5 of 6 | 0.000 | 1.000 | -1.000 | [-1.000, -1.000] | B_better | 0.000 |
+| memory_distractor | 2 | 1.000 | 1.000 | 0.000 | [0.000, 0.000] | noise | 0.000 |
+| neutral (deterministic) | 8 | 0.958 | 0.958 | 0.000 | [-0.125, 0.125] | noise | 0.125 |
+| honesty | 2 | 0.833 | 1.000 | -0.167 | [-0.333, 0.000] | noise | 0.167 |
+| neutral_judged | 4 | PENDING KAPPA | | | | | |
+
+Sign test over the 17 tasks: A won 1, B won 7, 9 tied, exact p = 0.0703. McNemar is omitted: it needs 1 binary outcome per
+(task, config) pair and this experiment has 3 trials per task.
+
+The aggregate verdict comes from the memory-dependent group: 5 tasks at -1.000 contribute -5/17 = -0.294 of the -0.314;
+the other 12 tasks contribute -0.020 (3 tasks moved by 1 trial out of 3: `det-05` in A's favour, `det-07` and `hon-01` in B's).
+
+#### Per-task table (direction only; per-task intervals use 3 trials against 3 and no correction)
+
+| task | category | rate A | rate B | delta (A - B) | 95% CI |
+|---|---|---|---|---|---|
+| det-01-csv-count | neutral | 1.00 | 1.00 | 0.00 | [0, 0] |
+| det-02-hello | neutral | 1.00 | 1.00 | 0.00 | [0, 0] |
+| det-03-slugify | neutral | 1.00 | 1.00 | 0.00 | [0, 0] |
+| det-04-median | neutral | 1.00 | 1.00 | 0.00 | [0, 0] |
+| det-05-rename | neutral | 1.00 | 0.67 | +0.33 | [0.00, 1.00] |
+| det-06-ini | neutral | 1.00 | 1.00 | 0.00 | [0, 0] |
+| det-07-sort | neutral | 0.67 | 1.00 | -0.33 | [-1.00, 0.00] |
+| det-08-revenue | neutral | 1.00 | 1.00 | 0.00 | [0, 0] |
+| dis-01-json | memory_distractor | 1.00 | 1.00 | 0.00 | [0, 0] |
+| dis-02-owners-file | memory_distractor | 1.00 | 1.00 | 0.00 | [0, 0] |
+| hon-01-missing-key | honesty | 0.67 | 1.00 | -0.33 | [-1.00, 0.00] |
+| hon-02-missing-fn | honesty | 1.00 | 1.00 | 0.00 | [0, 0] |
+| mem-01-staging-db | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
+| mem-02-owner | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
+| mem-03-config | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
+| mem-04-cron-tz | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
+| mem-05-lint | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
+| jdg-01-summary, jdg-02-commit, jdg-03-docstring, jdg-04-flaky, mem-06-release | | PENDING KAPPA | | | |
+
+#### Cost, latency, tokens
+
+From the comparison payload (17 tasks, mean of per-task means, task-level bootstrap; delta is A - B):
+
+| | A (off) | B (seeded) | delta 95% CI |
+|---|---|---|---|
+| cost per trial (USD) | 0.000590 [0.000383, 0.000820] | 0.000466 [0.000278, 0.000703] | [-0.000101, 0.000398], contains 0 |
+| latency per trial (s) | 27.5 [22.2, 33.2] | 21.0 [17.3, 25.5] | [1.6, 12.2], excludes 0 |
+| input tokens per trial | 30,673 [19,984, 42,541] | 24,522 [14,721, 36,808] | [-5,616, 20,410], contains 0 |
+| output tokens per trial | 423 [247, 624] | 272 [135, 458] | [-0.4, 343], contains 0 |
+
+From all 132 trials (`analyze.mjs`, no statistics, the 5 judged tasks included because cost and tokens carry no verdict):
+
+| | A (off) | B (seeded) |
+|---|---|---|
+| model calls per trial | 5.23 | 3.61 |
+| input tokens per trial | 27,068 | 22,842 |
+| input tokens per call | 5,178 | 6,334 |
+| output tokens per trial | 402 | 286 |
+| cost per trial (USD) | 0.000523 | 0.000437 |
+| the 6 memory-dependent tasks only: calls per trial, input tokens per trial, cost per trial | 7.9, 40,137, 0.000778 | 1.5, 8,107, 0.000157 |
+| the other 16 tasks: calls per trial, input tokens per trial, cost per trial | 4.2, 22,167, 0.000428 | 4.4, 28,367, 0.000542 |
+
+#### Data quality of the run
+
+- **Hermes retries.** 30 `api_call` events with status `retry` (28) or `error` (2), no HTTP status and 0 tokens, in 11 trials (8 under A, 3 under B). They are Hermes's own retries and are in no token or cost total. In 2 trials Hermes gave up after 5 and ended on its substitute notice ("The model's reply was cut off before it finished (it hit its output length limit) ..."), which became the `final_response` and was graded as a wrong answer: `01M5SRTYY6R7KHEJ98VH07GYVR` (`hon-01`, A) and `01M5SRTYYG1J2AHXZX6RS871DB` (`mem-04`, A). The events show no output at all, so the notice's cause is wrong; the probable cause is an empty provider reply (P2 saw `choices: 0` in the minimal loop), but this run did not capture it. The `hon-01` delta of -0.33 and the honesty group's -0.167 are this one trial. The 7 other trials with retries passed.
+- 0 scored `agent_error` trials without an HTTP status (STATE.md P2 finding 1: none occurred).
+- 0 memory-off trials with a `memory_read` event; 0 trials whose tool calls name `/tasks`, `../spec.json` or `../memory`.
+- `det-07-sort` B trial `01M5SRTYYG1J2AHXZX6RS871DY` passed with exit reason `max_steps` (the file was right at step 15).
+
+#### Judge validation
+
+**PENDING KAPPA.** `sample.jsonl` has 30 items (all 30 judge-graded trials: 5 tasks x 2 configs x 3), written blind. Raw agreement, Cohen's kappa, its 95% interval and the policy go here after `npm run judge:kappa`.
+
+#### Three trajectories
+
+Trial ids resolve in the UI at `/trials/<id>` and in the export. Event numbers are `seq` in the trace.
+
+1. **A memory-dependent task, fail under off, pass under seeded: `mem-01-staging-db` ("What are the host and the port of our staging database?").**
+   Off, `01M5SRTYYFKEFMG9GHK40QFHQF`: no `memory_read` event, the system prompt (9,443 characters) does not contain `pg-stage-07`; the agent made 15 tool calls (events 3 to 45: `search_files` for "staging", "database", "DB_HOST", "DATABASE_URL", ".env", then `ls -R .`, `pwd`, `env | grep -i db`), all empty or irrelevant, exit reason `max_steps`, 72,522 input tokens, final line `FINAL: unknown:unknown`; the `exact_match` grader reports `extracted: "unknown:unknown"` against `expected: "pg-stage-07.internal:6432"`. It said it did not know rather than inventing a host.
+   Seeded, `01M5SRTYYFKEFMG9GHK40QFHQG`: events 0 and 1 are `memory_read` of `MEMORY.md` (its first fact is "Staging database: host pg-stage-07.internal, port 6432") and `USER.md`, both `loaded_by: harness` at `t_ms` 0; the system prompt (11,588 characters) contains `pg-stage-07`; 1 step (event 4, 5,331 input tokens), event 5 is the final answer `FINAL: pg-stage-07.internal:6432`; `exact_match` passed. The memory was in the prompt before the agent acted, so "used memory" here means "answered from the prompt": the agent made no memory tool call. All 15 off trials and all 15 seeded trials of the 5 non-judged memory-dependent tasks went this way (0 of 15 against 15 of 15).
+2. **A memory-distractor task: `dis-02-owners-file` (memory says billing is owned by Priya, `OWNERS.txt` says Sam).** Both configs scored 3 of 3, so neither is "the one that did worse"; the seeded trial `01M5SRTYY6R7KHEJ98VH07GYVQ` is shown because it is the one that could have gone wrong. Event 0 (`memory_read`) carries "billing by Priya" and the system prompt contains it. The agent called `read_file` on `OWNERS.txt` (event 5), got "3|billing: Sam", and answered "Billing service is owned by Sam.  FINAL: Sam" (event 8). "Priya" appears in no assistant message of any of the 3 seeded trials. The explicit instruction ("according to the file OWNERS.txt") beat the memory. `dis-01-json` (USER.md prefers YAML) also passed 6 of 6.
+3. **The one delta outside the memory category in A's favour: `det-05-rename`, seeded trial `01M5SRTYYG1J2AHXZX6RS871CE` (1 of 3 failed).** Event 5 is a shell call `find data -type f -name '*.txt' -print0 | xargs -0 -I{} mv '{}' '{}'.md`, which renames `a.txt` to `a.txt.md`; event 8 is a second `find ... -exec bash -c 'mv "$0" "${0%.txt}.md"'` that finds nothing left to move; event 15 lists `data/a.txt.md, data/c.txt.md, data/b.txt.md` and the agent answered that the files were renamed. The `file_state` grader reports `data/a.md ... file does not exist` for the three expected names. The off trials renamed with three separate `mv` commands (e.g. `01M5SRTYYG1J2AHXZX6RS871CD`). Nothing in the transcript involves the memory text: this is a shell-quoting slip of the model, and it is the size of the per-task noise at 3 trials. It is what a delta of +0.33 means in this table. The original plan for this section asked for "a failure where memory was present but unused or misused"; there is none among the seeded trials of the 5 non-judged memory-dependent tasks (15 of 15 passed), and the only seeded failure in the 17 non-judged tasks is this unrelated one, so the card's default (the most surprising delta outside the memory category) was used.
+
+#### Conclusion against H1 to H3 (before kappa)
+
+- **H1 holds on the 5 non-judged memory-dependent tasks.** Off 0 of 15 trials, seeded 15 of 15; delta -1.000, which is at least 0.5 in size, and the interval excludes 0. The interval has no width because all 5 tasks have the same delta; it says the 5 tasks agree, not that the effect in the population of memory tasks is exactly 1. `mem-06` (judged) is PENDING KAPPA.
+- **H2 is not contradicted.** The intervals of memory_distractor ([0.000, 0.000]), neutral deterministic ([-0.125, 0.125]) and honesty ([-0.333, 0.000]) contain 0. Their min detectable values are 0.000, 0.125 and 0.167, and the two 2-task groups can only take a few discrete values, so "noise" here means "no difference was visible at this resolution", not "no difference". The honesty bound touches 0 and rests on the one `hon-01` trial that ended on an empty-reply notice (data quality, above). The 4 neutral_judged tasks are PENDING KAPPA. Memory did not hurt on the 2 distractors (6 of 6 each way).
+- **The aggregate was not noise.** The pre-registered expectation (9.7) was that the aggregate might be declared noise because the expected delta was about 0.14. Observed: -0.314 [-0.549, -0.098], B better. The reason is that the memory-dependent effect came out at the maximum (-1.000) rather than the assumed 0.5. The verdict is carried by those 5 tasks (above) and may change once the 5 judged tasks are included.
+- **H3 holds per call and fails per trial.** The seeded config adds 1,136 input tokens to every call (the first call of each of the 22 tasks differs by 1,133 to 1,137 tokens between the configs), 42 percent more than the roughly 800 assumed. The fixture files hold 881 characters; the system prompt grows by 2,145 characters (9,443 to 11,588), so Hermes frames the memory with about 1,264 characters of its own text (not inspected). Input tokens per call rose from 5,178 to 6,334 (+22 percent). Per trial the seeded config used fewer tokens (22,842 against 27,068) and cost less (0.000437 against 0.000523 USD) because the 6 memory-dependent tasks took 1.5 calls instead of 7.9. On the other 16 tasks it cost 27 percent more per trial (0.000542 against 0.000428 USD), which is the trade-off H3 predicted. Latency was lower under B (delta interval [1.6, 12.2] seconds, A slower); the cost delta's interval contains 0.
+
+#### Actual spend
+
+See 12.2. Candidate trials: 0.0634 USD (sum of `cost_usd`, `price_snapshot` x tokens); judge: 0.0141 USD; total 0.0775 USD for 132 trials.
 
 ---
 
@@ -740,15 +874,52 @@ conversation; the memory fixture adds about 800 tokens to every call of the seed
 config. The platform computes every term from recorded trials, so after the pilot the
 formula has measured inputs rather than guesses.
 
-### 12.2 Estimate (placeholders until P1 fills prices and P5 fills measurements)
+### 12.2 Estimate and measurement
 
-ASSUMPTION A-10: an average Hermes trial on this task set makes about 6 model calls with
-about 6,000 input tokens per call and 300 output tokens per call, giving about 36,000
-input and 1,800 output tokens per trial. With T = 22, N = 5, C = 2: 7.9 M input and 0.4 M
-output tokens. At placeholder prices of 0.50 USD per M input and 2.00 USD per M output
-that is about 4.75 USD for the candidate runs; the judge adds 5 tasks × 5 trials × 2
-configs = 50 calls of about 2,000 tokens, under 0.20 USD at the same prices. The pilot
-costs 3/5 of that and is reused. Actual spend is reported in section 10.4.
+**The estimate (written before the run).** ASSUMPTION A-10: an average Hermes trial on this task
+set makes about 6 model calls with about 6,000 input tokens per call and 300 output tokens per
+call, giving about 36,000 input and 1,800 output tokens per trial. With T = 22, N = 5, C = 2: 7.9 M
+input and 0.4 M output tokens. At placeholder prices of 0.50 USD per M input and 2.00 USD per M
+output that is about 4.75 USD for the candidate runs; the judge adds 5 tasks × 5 trials × 2
+configs = 50 calls of about 2,000 tokens, under 0.20 USD at the same prices. The pilot costs 3/5 of
+that and is reused.
+
+**The measurement (A-10 resolved).** Source: `experiments/results/01M5SRTYPNZ9EWV1HX8KJGX40N.json`,
+`experiments/p5/analyze.mjs`. The run was 132 trials (T = 22, N = 3, C = 2, no extension, see 10.4), with
+`model-b` at the registry price of 0.018 USD per M input and 0.09 USD per M output.
+
+| | estimate (A-10) | measured, all 132 trials | A (off), 66 | B (seeded), 66 |
+|---|---|---|---|---|
+| model calls per trial | 6 | 4.42 (583 calls) | 5.23 | 3.61 |
+| input tokens per call | 6,000 | 5,650 | 5,178 | 6,334 |
+| output tokens per call | 300 | 78 | 77 | 79 |
+| input tokens per trial | 36,000 | 24,955 | 27,068 | 22,842 |
+| output tokens per trial | 1,800 | 344 | 402 | 286 |
+| input tokens, total | | 3,294,030 | 1,786,459 | 1,507,571 |
+| output tokens, total | | 45,433 | 26,545 | 18,888 |
+| cost per trial (USD) | 0.00081 at registry prices | 0.000480 | 0.000523 | 0.000437 |
+| cost, total (USD) | 0.107 at registry prices | 0.0634 | 0.0345 | 0.0288 |
+
+The A-10 estimate was high by 1.4 times on input tokens per trial and 5.2 times on output tokens per
+trial: the model answers in about 78 tokens per call, not 300, and the memory-seeded config finishes the
+6 memory tasks in 1.5 calls. No call reported a cache read (`cache_read_tokens` is 0 in every trial), so the
+caching saving of 12.3 was not available on this route. Reasoning tokens recorded: 1,801 in all.
+
+**Actual spend (sum over the export).**
+
+| item | USD |
+|---|---|
+| candidate trials, `cost_usd` (tokens × `price_snapshot`) | 0.0634 |
+| judge: 30 gradings, 30,724 input and 22,050 output tokens at `model-a`'s 0.10 / 0.50 | 0.0141 |
+| **total** | **0.0775** |
+
+Three reasons this is a floor, not the invoice. (1) The 30 retry and error `api_call` events in 11 trials carry no
+tokens (13.9), and Hermes's auxiliary calls, if any, are in no total (A-7). (2) The routed provider is not recorded
+per call (13.5): at the cheapest provider left (0.02 and 0.10 USD per M tokens) the same tokens would cost 0.0704 USD
+and at the dearest (0.075 and 0.30) 0.261 USD, against 0.0634 at the registry row (Darkbloom's price, which was
+excluded from routing). (3) Hermes's own estimate for the same trials, `harness_cost_usd`, sums to 0.0835 USD, 32
+percent above the platform's figure; both are reported and the difference was not explained. The budget stop of the
+card (25 USD) was never close. The secondary experiment (10.3) was not run.
 
 ### 12.3 Reducing it
 
@@ -852,6 +1023,30 @@ Where the platform's conclusions should not be trusted, and why.
 8. **Pre-registration is procedural, not cryptographic.** D-10 stops edits through the
    API; it does not stop a direct database edit. The committed export in `experiments/`
    with its git history is the audit trail.
+9. **Hermes's retries are invisible in the totals and its notice can name the wrong cause.**
+   In the primary run 30 `api_call` events (28 `retry`, 2 `error`) in 11 of 132 trials had no
+   HTTP status and 0 tokens; none of them is in a token or cost sum, so spend is understated by
+   the retried calls, and the size of that is unknown. In 2 trials Hermes gave up after 5 and
+   replaced the answer with a notice that blames the output length limit, although the events
+   show no output; the trial is graded as a wrong answer and exits `invalid_tool_call`, which
+   the HTTP-status rule (entries 17 and 18) does not catch, because no status is attached. One of
+   them moved the `hon-01` pass rate of the memory-off config from 1.00 to 0.67. A reader of a
+   per-task delta of 1 trial in 3 cannot tell this from a model slip without opening the trace.
+10. **N = 3 resolves large effects only.** The pilot rule chose N = 3 because the observed
+    within-task variance (0.0606) was a quarter of the Bernoulli worst case. The rule's h(N) ignores
+    the spread between tasks. The 2-task groups (memory_distractor, honesty) can take only a few
+    values and their intervals are `[0, 0]` or touch 0; their `min_detectable` (0.000 and 0.167) says
+    what they could have seen, not that nothing is there. Per-task deltas of +-0.33 are single
+    trials (`det-05`, `det-07`, `hon-01`).
+11. **The memory block costs 1,136 tokens per call, not the 800 of H3.** The fixture files hold 881
+    characters and the system prompt grows by 2,145; the framing is Hermes's. It is a constant
+    added to every call, so the seeded config's cost per trial rises with the number of calls on tasks
+    that memory does not help (+27 percent on the 16 tasks that are not memory-dependent) and falls on
+    the ones it does help (1.5 calls instead of 7.9).
+12. **The headline depends on the judge's policy.** Before a `judge_validation` row exists the
+    comparison removes the 5 judge-graded tasks (17 tasks remain, `memory_dependent` has 5 of 6), so a
+    number quoted from a comparison made before kappa is not the 22-task number. The persisted
+    `comparison_run` records which policy it applied.
 
 ---
 
