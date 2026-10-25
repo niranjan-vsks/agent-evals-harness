@@ -54,6 +54,47 @@ the isolated stack they ran on). P3 is done (its section is at the end of this f
 
 ---
 
+## P5: The real experiment, judge validation, README, results, video script (IN PROGRESS)
+
+This section is written in steps while the phase runs. The part below was written BEFORE the comparison endpoint was opened.
+
+### Run setup
+
+- **Where it ran.** An isolated compose project `p5run` on the same Windows 11 host, built from `git archive cb7a46d` (the P4 commit, so the P6 session's uncommitted work in the same checkout cannot reach it) in `C:\hx\p5src`, with ports 127.0.0.1:3200 (api), 8200 (worker) and 8280 (web), the repo's `.env` by absolute path and `experiments/` bind-mounted from the repo (so `judge:sample` writes into it). Classic builder (`DOCKER_BUILDKIT=0`, `COMPOSE_BAKE=false`). The database is new (`p5run_dbdata`): none of the P1 to P4 rows are in it. Docker Desktop was not running at the start and was started by hand.
+- **Settings.** `MAX_CONCURRENT_TRIALS` 2 (printed from the api container), `WORKER_MAX_PARALLEL` 4, `JUDGE_MODEL_ID` `model-a`. No other session used this stack.
+- **Configs** (created by `experiments/p5/setup-pilot.mjs` through `POST /configs`; both 201): A `hermes memory off` id `01M5SRTYBWGNJH3HV8N3BHSTKH`, `config_hash` `638fcbb999c8fb535e7aa8155bc13fc148cc0bed241d0e91240c11459890ae66`; B `hermes memory seeded` (`team-memory-v1`) id `01M5SRTYKGT14BBXBCKFV1ANYQ`, `config_hash` `1b359ab5b8b402d225622f3bc0861813bd15b77126232645038d0aaf5b2af88e`. Both: harness `hermes` (commit `f4ac0bea1e`), `model-b` = `openai/gpt-oss-20b`, tools `[shell, files]`, skills off, temperature 0, `max_steps` 15, `max_output_tokens` 2048, `timeout_seconds` 300, `harness_options.providers_ignored = ["Darkbloom", "Groq"]` (DESIGN 13.5).
+- **Experiment** `01M5SRTYPNZ9EWV1HX8KJGX40N`, "P5 primary: hermes memory off vs seeded", draft with phase `pilot`, `n_trials` 3, `seed` 20261025, the 22 tasks as an explicit `task_ids`, axis `hermes memory off vs seeded`, and the hypothesis read from DESIGN.md 10.1 by the script (H1 to H3, verbatim, and the API echoed it back). Started 2026-10-25T14:53:34.813Z.
+
+### Pilot (N = 3), the numbers the decision used
+
+`GET /experiments/01M5SRTYPNZ9EWV1HX8KJGX40N/pilot`, after the experiment finished `completed` at 2026-10-25T15:22:32.937Z (29.0 minutes for 132 trials at concurrency 2): 132 done, 0 errored, 0 cancelled, 0 pending.
+
+| field | value |
+|---|---|
+| ready | true |
+| n_pilot, n_tasks, n_judged_tasks, n_configs | 3, 22, 5, 2 |
+| n_cells_used | 44 of 44 |
+| within_task_variance (s2) | 0.06060606060606062 |
+| Bernoulli worst case (0.25) | h(3) 0.1706, h(5) 0.1321, h(8) 0.1045 |
+| h(N) with the observed s2, T = 22 | **h(3) 0.083996**, h(5) 0.065063, h(8) 0.051437 |
+| h(N) with the observed s2, the 5 judged tasks removed (T = 17) | h(3) 0.095553, h(5) 0.074015, h(8) 0.058514 |
+| trials for N = 3, 5, 8 | 132, 220, 352 |
+| `recommended_n`, `capped` | 3, false |
+
+### N decision
+
+The rule (DESIGN 9.7, card section 7 S2): the smallest N in {3, 5, 8} with h(N) <= 0.15, where h uses the observed s2. h(3) = 0.083996 <= 0.15, so **N = 3**. The endpoint, which tries every integer from the pilot's N up to the cap of 8, returned the same 3. The pilot has the 3 trials per cell that the rule asks for, so the pilot is the full run: `extend` is **not** called, no trial is added, and the run is the 132 trials above.
+
+Why this is not N = 5 as DESIGN 10.2 expected: that expectation used the worst-case variance 0.25 (h(5) = 0.132). The observed within-task variance is 0.0606, a quarter of that, because most cells are all-pass or all-fail at temperature 0. The pre-registered rule says to trust the pilot over the bound, so the bound's N = 5 is not used. Two things the rule does not cover, said now so they are not found later: (1) h(N) shrinks only the within-task noise; between-task spread is not reduced by N and enters the task-level bootstrap interval directly, so the real interval is expected to be wider than 0.084; (2) the reported `min_detectable` of the aggregate and of each category (6, 2, 2 and 8 tasks) is what this N could resolve, and DESIGN 10.4 reports it next to each verdict. Cost of the choice: 132 trials instead of 220.
+
+No pass rate, delta, verdict or comparison payload was read before this section was written (the compare endpoint was not called; the trial list was fetched once to look at the event shape of a trace, and its `passed` values were not read).
+
+### Next action (interim)
+
+Open Compare with `?persist=1`, export, run `experiments/p5/analyze.mjs`, `judge:sample -- --n 30`, and stop for the labels.
+
+---
+
 ## P4: Vue 3 UI (configs, experiments, compare, trial inspector)
 
 Built on the same Windows 11 host. Tests and typecheck ran on mirrors of `web/` under `C:\hx\p4\` (OneDrive breaks test file discovery, see P2); the gates that matter ran in Docker Desktop 4.96.1 (classic builder, `DOCKER_BUILDKIT=0`, `COMPOSE_BAKE=false`) against the running compose stack with the P3 API. Only `web/`, the `web` service of `docker-compose.yml` and this section were touched.
