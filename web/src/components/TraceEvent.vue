@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // One row of the trial event timeline. A collapsed row is 1 line (a button, so Enter and Space toggle it);
-// an expanded row shows the full content. Everything from the trace is untrusted text: it is only ever
-// rendered with interpolation, never as HTML.
+// an expanded row shows the full content. P7: the kind has an icon next to its label, a gutter line joins a tool_call to
+// its tool_result, and memory, skill and error rows are tinted with the semantic colours. Everything from the trace is
+// untrusted text: it is only ever rendered with interpolation, never as HTML.
 import { computed } from 'vue';
 import type { TraceEvent as Ev } from '../api/types';
 import { ms, seconds } from '../lib/format';
@@ -96,15 +97,36 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
 </script>
 
 <template>
-  <li :id="`event-${event.seq}`" class="ev" :class="[rowClass, { 'ev-focus': focused }]" :data-seq="event.seq" :data-kind="event.kind" :data-focused="focused ? 'true' : undefined">
+  <li
+    :id="`event-${event.seq}`"
+    class="ev"
+    :class="[rowClass, { 'ev-focus': focused, 'ev-open': expanded, 'ev-link-down': event.kind === 'tool_call' && pairedResult, 'ev-link-up': event.kind === 'tool_result' && pairedCall }]"
+    :data-seq="event.seq"
+    :data-kind="event.kind"
+    :data-focused="focused ? 'true' : undefined"
+  >
+    <span class="ev-gutter" aria-hidden="true"><span class="ev-node" /></span>
     <button type="button" class="ev-head" :aria-expanded="expanded" @click="emit('toggle', event.seq)">
-      <span class="ev-caret" aria-hidden="true">{{ expanded ? 'v' : '>' }}</span>
+      <span class="ev-caret" aria-hidden="true" />
       <span class="ev-seq mono">#{{ event.seq }}</span>
       <span class="ev-t mono">{{ seconds(event.t_ms) }}</span>
-      <span class="badge ev-kind">{{ label }}</span>
+      <span class="ev-kind-wrap">
+        <svg class="ev-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+          <path v-if="event.kind === 'message'" d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />
+          <path v-else-if="event.kind === 'tool_call'" d="M2.5 8h9M8.5 4.5 12 8l-3.5 3.5" />
+          <path v-else-if="event.kind === 'tool_result'" d="M13.5 8h-9M7.5 4.5 4 8l3.5 3.5" />
+          <path v-else-if="event.kind === 'api_call'" d="M8 2.5v11M2.5 8h11M4.5 4.5l7 7M11.5 4.5l-7 7" />
+          <path v-else-if="event.kind === 'memory_read' || event.kind === 'memory_write'" d="M3 4h10M3 8h10M3 12h6" />
+          <path v-else-if="event.kind === 'skill_invoked'" d="M8 2.5 13.5 8 8 13.5 2.5 8z" />
+          <path v-else d="M8 2.5 14 13H2zM8 6.5v3M8 11.2v.1" />
+        </svg>
+        <span class="ev-kind">{{ label }}</span>
+      </span>
       <span v-if="event.kind === 'api_call'" class="ev-status" :class="apiStatusClass">{{ event.status }}{{ event.http_status != null ? ` ${event.http_status}` : '' }}</span>
       <span v-if="event.kind === 'tool_result'" class="ev-status" :class="event.is_error ? 'badge badge-bad' : ''">{{ event.is_error ? 'error' : 'ok' }}</span>
       <span class="ev-summary">{{ summary }}</span>
+      <span v-if="pairedResult" class="ev-pairref mono" :title="`answered by event #${pairedResult.seq}`">to #{{ pairedResult.seq }}</span>
+      <span v-else-if="pairedCall" class="ev-pairref mono" :title="`answers event #${pairedCall.seq}`">from #{{ pairedCall.seq }}</span>
       <span v-if="truncation" class="badge badge-warn">truncated</span>
     </button>
 
@@ -112,13 +134,13 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
       <p v-if="truncation" class="warn small">{{ truncation }}</p>
 
       <template v-if="event.kind === 'message'">
-        <div class="small muted">role {{ event.role }}, step {{ event.step }}</div>
+        <div class="ev-meta">role {{ event.role }}, step {{ event.step }}</div>
         <pre class="ev-content">{{ event.content }}</pre>
       </template>
 
       <template v-else-if="event.kind === 'tool_call'">
-        <div class="small muted">tool {{ event.tool }}, harness tool {{ event.harness_tool }}, step {{ event.step }}, call id <span class="mono">{{ event.call_id }}</span></div>
-        <div class="small muted">args</div>
+        <div class="ev-meta">tool {{ event.tool }}, harness tool {{ event.harness_tool }}, step {{ event.step }}, call id <span class="mono">{{ event.call_id }}</span></div>
+        <div class="ev-meta">args</div>
         <pre class="ev-args">{{ pretty(event.args) }}</pre>
         <div class="ev-pair">
           <template v-if="pairedResult">
@@ -135,7 +157,7 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
       </template>
 
       <template v-else-if="event.kind === 'tool_result'">
-        <div class="small muted">call id <span class="mono">{{ event.call_id }}</span>, {{ event.duration_ms }} ms, {{ event.is_error ? 'ERROR' : 'ok' }}</div>
+        <div class="ev-meta">call id <span class="mono">{{ event.call_id }}</span>, {{ event.duration_ms }} ms, {{ event.is_error ? 'ERROR' : 'ok' }}</div>
         <div v-if="pairedCall" class="small ev-pair">
           answers tool call #{{ pairedCall.seq }}: {{ pairedCall.tool }} ({{ pairedCall.harness_tool }}) {{ argsPreview(pairedCall.args) }}
         </div>
@@ -148,25 +170,25 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
           <tbody>
             <tr><th>step</th><td>{{ event.step }}</td></tr>
             <tr><th>model</th><td class="mono">{{ event.model }}</td></tr>
-            <tr><th>input tokens</th><td>{{ event.input_tokens }}</td></tr>
-            <tr><th>output tokens</th><td>{{ event.output_tokens }}</td></tr>
-            <tr><th>latency</th><td>{{ ms(event.latency_ms) }}</td></tr>
+            <tr><th>input tokens</th><td class="mono">{{ event.input_tokens }}</td></tr>
+            <tr><th>output tokens</th><td class="mono">{{ event.output_tokens }}</td></tr>
+            <tr><th>latency</th><td class="mono">{{ ms(event.latency_ms) }}</td></tr>
             <tr><th>status</th><td><span :class="apiStatusClass">{{ event.status }}</span></td></tr>
-            <tr><th>http status</th><td>{{ event.http_status == null ? 'none' : event.http_status }}</td></tr>
+            <tr><th>http status</th><td class="mono">{{ event.http_status == null ? 'none' : event.http_status }}</td></tr>
           </tbody>
         </table>
       </template>
 
       <template v-else-if="event.kind === 'memory_read'">
-        <div class="small muted">file {{ event.file }}, loaded by {{ event.loaded_by }}</div>
+        <div class="ev-meta">file {{ event.file }}, loaded by {{ event.loaded_by }}</div>
         <pre class="ev-content">{{ event.content }}</pre>
       </template>
 
       <template v-else-if="event.kind === 'memory_write'">
-        <div class="small muted">file {{ event.file }}, op {{ event.op }}</div>
-        <div class="small muted">args</div>
+        <div class="ev-meta">file {{ event.file }}, op {{ event.op }}</div>
+        <div class="ev-meta">args</div>
         <pre class="ev-args">{{ pretty(event.args) }}</pre>
-        <div class="small muted">content after</div>
+        <div class="ev-meta">content after</div>
         <pre v-if="event.content_after !== null" class="ev-content">{{ event.content_after }}</pre>
         <div v-else class="small muted">(not recorded)</div>
       </template>
@@ -176,7 +198,7 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
       </template>
 
       <template v-else-if="event.kind === 'error'">
-        <div class="small muted">
+        <div class="ev-meta">
           stage {{ event.stage }}, {{ event.retryable ? 'retryable' : 'not retryable' }}<template v-if="event.http_status !== undefined && event.http_status !== null">, http status {{ event.http_status }}</template>
         </div>
         <pre class="ev-content">{{ event.message }}</pre>
@@ -186,27 +208,65 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
 </template>
 
 <style scoped>
-.ev { list-style: none; border-bottom: 1px solid var(--line); border-left: 4px solid transparent; }
-.ev-head { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 0; padding: 3px 6px; cursor: pointer; }
-.ev-head:hover:not(:disabled) { background: rgba(0, 0, 0, 0.04); }
-.ev-caret { width: 10px; color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
-.ev-seq { min-width: 44px; color: var(--muted); }
-.ev-t { min-width: 56px; color: var(--muted); }
-.ev-kind { min-width: 104px; text-align: center; }
-.ev-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ev-body { padding: 4px 10px 10px 30px; }
-.ev-body pre { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 3px 0 6px; max-height: 420px; overflow: auto; }
-.ev-pair { margin-top: 6px; }
-.ev-out-error { color: var(--bad); background: var(--bad-bg) !important; }
-.ev-fields { width: auto; }
+.ev { position: relative; list-style: none; border-bottom: 1px solid var(--border); padding-left: 28px; transition: background-color var(--dur-fast) var(--ease-out); }
+.ev:last-child { border-bottom: 0; }
 
-.ev-focus { outline: 2px solid var(--link); outline-offset: -2px; }
-.ev-api { color: var(--muted); }
-.ev-api .ev-kind { background: transparent; }
-.ev-memory { border-left-color: #7a4fc4; background: #f1ebfb; }
-.ev-memory .ev-kind { background: #e1d5f5; color: #4b2a8c; }
-.ev-skill { border-left-color: #0a7d8c; background: #e3f3f5; }
-.ev-skill .ev-kind { background: #c9e8ec; color: #05525c; }
-.ev-error { border-left-color: var(--bad); background: var(--bad-bg); }
-.ev-error .ev-kind { background: var(--bad-bg); color: var(--bad); }
+/* The gutter: a node per event, and a line that joins a tool_call to its tool_result (down from the call, up into the result). */
+.ev-gutter { position: absolute; left: 0; top: 0; bottom: 0; width: 28px; pointer-events: none; }
+.ev-node { position: absolute; left: 12px; top: 15px; width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong); }
+.ev-link-down .ev-gutter::after,
+.ev-link-up .ev-gutter::before { content: ''; position: absolute; left: 14px; width: 1px; background: var(--accent); opacity: 0.55; }
+.ev-link-down .ev-gutter::after { top: 18px; bottom: -1px; }
+.ev-link-up .ev-gutter::before { top: 0; height: 15px; }
+.ev-link-down .ev-node, .ev-link-up .ev-node { background: var(--accent); }
+
+.ev-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  min-height: 34px;
+  padding: 6px var(--space-3) 6px 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-weight: var(--fw-regular);
+  font-size: var(--fs-13);
+  color: var(--text);
+}
+.ev-head:hover:not(:disabled) { background: transparent; border: 0; }
+.ev:hover { background: var(--row-hover); }
+.ev-head:active:not(:disabled) { transform: none; }
+.ev-caret { flex: none; width: 6px; height: 6px; margin: 0 2px; border-right: 1.5px solid var(--text-muted); border-bottom: 1.5px solid var(--text-muted); transform: rotate(-45deg); transition: transform var(--dur-fast) var(--ease-out); }
+.ev-open .ev-caret { transform: rotate(45deg); }
+.ev-seq { flex: none; min-width: 40px; color: var(--text-muted); }
+.ev-t { flex: none; min-width: 52px; color: var(--text-muted); text-align: right; }
+.ev-kind-wrap { flex: none; display: inline-flex; align-items: center; gap: 6px; min-width: 128px; color: var(--text-muted); }
+.ev-icon { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.ev-kind { font-family: var(--font-mono); font-size: var(--fs-12); font-weight: var(--fw-strong); }
+.ev-status { flex: none; font-family: var(--font-mono); font-size: var(--fs-12); color: var(--text-muted); }
+.ev-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-12); }
+.ev-pairref { flex: none; font-size: var(--fs-12); color: var(--accent-text); }
+
+.ev-body { padding: var(--space-1) var(--space-4) var(--space-4) calc(6px + 40px + 52px + 3 * var(--space-3)); }
+.ev-meta { font-size: var(--fs-12); color: var(--text-muted); margin: var(--space-1) 0; }
+.ev-body pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-3); margin: var(--space-1) 0 var(--space-2); max-height: 420px; overflow: auto; font-size: var(--fs-12); }
+.ev-pair { margin-top: var(--space-2); padding-left: var(--space-3); border-left: 1px solid var(--accent); }
+.ev-out-error { color: var(--fail-text); background: var(--fail-tint) !important; border-color: rgb(255 92 108 / 0.35) !important; }
+.ev-fields { width: auto; font-size: var(--fs-12); }
+.ev-fields th { background: transparent; padding: 3px var(--space-4) 3px 0; }
+.ev-fields td { padding: 3px 0; border-bottom-color: transparent; }
+.ev-fields th { border-bottom-color: transparent; }
+
+.ev-focus { box-shadow: inset 0 0 0 2px var(--accent); border-radius: var(--radius-control); }
+.ev-api .ev-summary, .ev-api .ev-kind-wrap { color: var(--text-muted); }
+.ev-memory { background: var(--info-tint); }
+.ev-memory .ev-kind-wrap { color: var(--info-text); }
+.ev-skill { background: var(--pass-tint); }
+.ev-skill .ev-kind-wrap { color: var(--pass-text); }
+.ev-error { background: var(--fail-tint); }
+.ev-error .ev-kind-wrap { color: var(--fail-text); }
+.ev-plain .ev-kind-wrap { color: var(--text); }
 </style>

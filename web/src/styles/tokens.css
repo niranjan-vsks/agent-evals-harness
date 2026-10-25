@@ -1,0 +1,113 @@
+/*
+ * The design tokens (cards/P7.md section 3). Every colour, size, space, radius and duration the UI uses is one of these.
+ * Dark is the default; light is `<html data-theme="light">`. No component knows which theme it is in.
+ *
+ * The 4 semantic hues (pass, fail, noise, info) and the accent are the card's in both themes and are used as they are for
+ * fills, bars, marks and the 12 percent chip tints. Text in a semantic or accent colour uses the *-text token: in dark it is
+ * the hue itself, in light it is a darker shade of the same hue, because the card's hues on white are under WCAG AA
+ * (card section 10.3; the ratios are in STATE.md, P7).
+ */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0b1220;
+  --surface-1: #111a2e;
+  --surface-2: #18233b;
+  --border: #243049;
+  --border-strong: #31405f;
+  --text: #e6edf7;
+  --text-muted: #8b9bb4;
+
+  --accent: #22b8f0;
+  --accent-hover: #5fd0ff;
+  --accent-text: #22b8f0;
+  --accent-gradient: linear-gradient(135deg, #1a73e8 0%, #22b8f0 100%);
+  --on-accent: #0b1220;
+
+  --pass: #2ecc8a;
+  --fail: #ff5c6c;
+  --noise: #f5b942;
+  --info: #22b8f0;
+  --pass-text: #2ecc8a;
+  --fail-text: #ff5c6c;
+  --noise-text: #f5b942;
+  --info-text: #22b8f0;
+  --pass-tint: rgb(46 204 138 / 0.12);
+  --fail-tint: rgb(255 92 108 / 0.12);
+  --noise-tint: rgb(245 185 66 / 0.12);
+  --info-tint: rgb(34 184 240 / 0.12);
+
+  --row-hover: rgb(34 184 240 / 0.06);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  /* No drop shadow in dark (card section 3): a 1 px inner highlight on the top edge is the only depth cue. */
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --skeleton-base: #18233b;
+  --skeleton-shine: #22304d;
+  --input-bg: #0b1220;
+  --chart-a: #22b8f0;
+  --chart-b: #8b9bb4;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f6f8fb;
+  --surface-1: #ffffff;
+  --surface-2: #eef2f7;
+  --border: #e3e8f0;
+  --border-strong: #cfd7e3;
+  --text: #0b1220;
+  --text-muted: #5b6b85;
+
+  --accent-text: #086a97;
+
+  --pass-text: #0d7048;
+  --fail-text: #c8283a;
+  --noise-text: #8a5a00;
+  --info-text: #086a97;
+
+  --row-hover: rgb(34 184 240 / 0.07);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --shadow-card: 0 1px 2px rgb(11 18 32 / 0.04), 0 4px 16px -8px rgb(11 18 32 / 0.10);
+  --skeleton-base: #eef2f7;
+  --skeleton-shine: #f8fafc;
+  --input-bg: #ffffff;
+  --chart-a: #1a73e8;
+  --chart-b: #8b9bb4;
+}
+
+:root {
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* The only 6 sizes and 2 weights (card section 3). */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-28: 28px;
+  --fw-regular: 400;
+  --fw-strong: 600;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Radius rule: cards 10 px, controls 6 px, chips are pills. */
+  --radius-card: 10px;
+  --radius-control: 6px;
+  --radius-pill: 999px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-theme: 250ms;
+
+  --content-max: 1440px;
+  --header-h: 56px;
+}

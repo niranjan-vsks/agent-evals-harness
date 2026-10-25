@@ -6,6 +6,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError } from '../api/client';
 import type { ExperimentDetail, PilotPayload, TrialRow, TrialStatus } from '../api/types';
+import DataTable from '../components/DataTable.vue';
+import Skeleton from '../components/Skeleton.vue';
 import StatusChip from '../components/StatusChip.vue';
 import { hashPrefix, int, num, seconds, shortId, usd, when } from '../lib/format';
 
@@ -253,8 +255,8 @@ const canCompare = computed(() => sortedConfigs.value.length >= 2 && pickA.value
 </script>
 
 <template>
-  <section>
-    <p><RouterLink to="/experiments">All experiments</RouterLink></p>
+  <section class="page">
+    <p class="crumb"><RouterLink to="/experiments">All experiments</RouterLink></p>
 
     <div v-if="loadError" class="error" data-test="load-error">
       <div>Could not load the experiment: {{ loadError.message }}</div>
@@ -262,52 +264,83 @@ const canCompare = computed(() => sortedConfigs.value.length >= 2 && pickA.value
         <li v-for="r in loadError.reasons" :key="r">{{ r }}</li>
       </ul>
     </div>
-    <p v-if="!exp && !loadError" class="muted">Loading experiment...</p>
+    <div v-if="!exp && !loadError" class="panel">
+      <Skeleton variant="lines" :rows="4" />
+      <p class="muted small">Loading experiment...</p>
+    </div>
 
     <template v-if="exp">
-      <header class="head">
-        <h1>
-          {{ exp.name }}
-          <StatusChip :status="exp.status" />
-          <StatusChip v-if="exp.paused" status="paused" />
-        </h1>
-        <div v-if="exp.paused" class="warn" data-test="paused">
-          Paused: {{ exp.pause_reason ?? 'no reason recorded' }}
-          <button type="button" data-test="resume" :disabled="busy" @click="resume">Resume</button>
+      <header class="page-head head">
+        <div>
+          <h1>
+            {{ exp.name }}
+            <StatusChip :status="exp.status" />
+            <StatusChip v-if="exp.paused" status="paused" />
+          </h1>
+          <p class="page-sub" data-test="axis"><strong>Axis:</strong> {{ exp.axis ?? 'none' }}</p>
         </div>
+      </header>
 
+      <div v-if="exp.paused" class="warn paused" data-test="paused">
+        <span>Paused: {{ exp.pause_reason ?? 'no reason recorded' }}</span>
+        <button type="button" data-test="resume" :disabled="busy" @click="resume">Resume</button>
+      </div>
+
+      <div class="overview">
         <div class="card hypothesis" data-test="hypothesis">
           <div class="small muted">Hypothesis (pre-registered)</div>
           <div class="hypothesis-text">{{ exp.hypothesis ?? 'No hypothesis was recorded.' }}</div>
         </div>
-        <p data-test="axis"><strong>Axis:</strong> {{ exp.axis ?? 'none' }}</p>
 
-        <dl class="meta">
-          <dt>Phase</dt><dd>{{ exp.phase }}</dd>
-          <dt>Trials per cell</dt><dd>{{ exp.n_trials }}</dd>
-          <dt>Seed</dt><dd>{{ exp.seed }}</dd>
-          <dt>Created</dt><dd>{{ when(exp.created_at) }}</dd>
-          <dt>Started</dt><dd>{{ when(exp.started_at) }}</dd>
-          <dt>Finished</dt><dd>{{ when(exp.finished_at) }}</dd>
-          <dt>Progress</dt>
-          <dd>
-            <span data-test="counts">{{ counts(exp) }}</span>
-            <progress :value="exp.progress.done + exp.progress.errored + exp.progress.cancelled" :max="exp.progress.total || 1" />
-          </dd>
-        </dl>
-      </header>
-
-      <h2>Actions</h2>
-      <div class="row">
-        <button type="button" class="primary" data-test="start" :disabled="busy || !canStart" @click="start">Start</button>
-        <button type="button" data-test="cancel" :disabled="busy || !canCancel" @click="cancel">Cancel</button>
-        <span class="row">
-          <label for="extend-to">Extend to N</label>
-          <input id="extend-to" v-model="extendTo" type="number" min="1" step="1" style="width: 80px" />
-          <button type="button" data-test="extend" :disabled="busy || !canExtend" @click="extend">Extend</button>
-        </span>
-        <button type="button" data-test="reproduce" :disabled="busy" @click="reproduce">Reproduce</button>
+        <div class="card run">
+          <dl class="meta kv">
+            <dt>Phase</dt><dd class="mono">{{ exp.phase }}</dd>
+            <dt>Trials per cell</dt><dd class="mono">{{ exp.n_trials }}</dd>
+            <dt>Seed</dt><dd class="mono">{{ exp.seed }}</dd>
+            <dt>Created</dt><dd class="mono">{{ when(exp.created_at) }}</dd>
+            <dt>Started</dt><dd class="mono">{{ when(exp.started_at) }}</dd>
+            <dt>Finished</dt><dd class="mono">{{ when(exp.finished_at) }}</dd>
+            <dt>Progress</dt>
+            <dd>
+              <span class="mono small" data-test="counts">{{ counts(exp) }}</span>
+              <progress :value="exp.progress.done + exp.progress.errored + exp.progress.cancelled" :max="exp.progress.total || 1" />
+            </dd>
+          </dl>
+        </div>
       </div>
+
+      <div class="toolbar">
+        <div class="toolbar-group" aria-label="Actions" role="group">
+          <h2 class="sr-only">Actions</h2>
+          <button type="button" class="primary" data-test="start" :disabled="busy || !canStart" @click="start">Start</button>
+          <button type="button" data-test="cancel" :disabled="busy || !canCancel" @click="cancel">Cancel</button>
+          <span class="extend">
+            <label for="extend-to" class="small muted">Extend to N</label>
+            <input id="extend-to" v-model="extendTo" type="number" min="1" step="1" />
+            <button type="button" data-test="extend" :disabled="busy || !canExtend" @click="extend">Extend</button>
+          </span>
+          <button type="button" data-test="reproduce" :disabled="busy" @click="reproduce">Reproduce</button>
+        </div>
+
+        <div class="toolbar-group" aria-label="Compare and export" role="group">
+          <h2 class="sr-only">Compare and export</h2>
+          <label for="pick-a" class="small muted">A</label>
+          <select id="pick-a" v-model="pickA">
+            <option v-for="c in sortedConfigs" :key="c.id" :value="c.id">{{ configName(c.id) }}</option>
+          </select>
+          <label for="pick-b" class="small muted">B</label>
+          <select id="pick-b" v-model="pickB">
+            <option v-for="c in sortedConfigs" :key="c.id" :value="c.id">{{ configName(c.id) }}</option>
+          </select>
+          <RouterLink v-if="canCompare" class="btn primary" data-test="compare" :to="{ name: 'compare', params: { id: exp.id }, query: { a: pickA, b: pickB } }">Compare</RouterLink>
+          <button v-else type="button" data-test="compare" disabled>Compare</button>
+          <a class="btn ghost" data-test="export-json" :href="api.exportJsonUrl(exp.id)" download>Export JSON</a>
+          <a class="btn ghost" data-test="export-csv" :href="api.exportCsvUrl(exp.id)" download>Export CSV</a>
+          <a v-if="canCompare" class="btn ghost" data-test="compare-csv" :href="api.compareCsvUrl(exp.id, pickA, pickB)" download>Compare CSV</a>
+          <button v-else type="button" class="ghost" data-test="compare-csv" disabled>Compare CSV</button>
+        </div>
+      </div>
+      <p v-if="sortedConfigs.length >= 2 && pickA === pickB" class="muted small">Pick 2 different configs to compare.</p>
       <div v-if="actionResult" class="notice" data-test="action-result">{{ actionResult }}</div>
       <div v-if="actionError" class="error" data-test="action-error">
         <div>{{ actionError.message }}</div>
@@ -316,119 +349,106 @@ const canCompare = computed(() => sortedConfigs.value.length >= 2 && pickA.value
         </ul>
       </div>
 
-      <h2>Compare and export</h2>
-      <div class="row">
-        <label for="pick-a">A</label>
-        <select id="pick-a" v-model="pickA">
-          <option v-for="c in sortedConfigs" :key="c.id" :value="c.id">{{ configName(c.id) }}</option>
-        </select>
-        <label for="pick-b">B</label>
-        <select id="pick-b" v-model="pickB">
-          <option v-for="c in sortedConfigs" :key="c.id" :value="c.id">{{ configName(c.id) }}</option>
-        </select>
-        <RouterLink v-if="canCompare" data-test="compare" :to="{ name: 'compare', params: { id: exp.id }, query: { a: pickA, b: pickB } }">Compare</RouterLink>
-        <button v-else type="button" data-test="compare" disabled>Compare</button>
-        <a data-test="export-json" :href="api.exportJsonUrl(exp.id)" download>Export JSON</a>
-        <a data-test="export-csv" :href="api.exportCsvUrl(exp.id)" download>Export CSV</a>
-        <a v-if="canCompare" data-test="compare-csv" :href="api.compareCsvUrl(exp.id, pickA, pickB)" download>Compare CSV</a>
-        <button v-else type="button" data-test="compare-csv" disabled>Compare CSV</button>
-      </div>
-      <p v-if="sortedConfigs.length >= 2 && pickA === pickB" class="muted small">Pick 2 different configs to compare.</p>
-
-      <h2>Trials</h2>
-      <div v-if="trialsError" class="error" data-test="trials-error">
-        <div>Could not load the trials: {{ trialsError.message }}</div>
-        <ul v-if="trialsError.reasons.length">
-          <li v-for="r in trialsError.reasons" :key="r">{{ r }}</li>
-        </ul>
-      </div>
-      <div class="row filters">
-        <label>
-          Config
-          <select v-model="configFilter" data-test="filter-config">
-            <option value="">all</option>
-            <option v-for="c in sortedConfigs" :key="c.id" :value="c.id">{{ configName(c.id) }}</option>
-          </select>
-        </label>
-        <label>
-          Task
-          <select v-model="taskFilter" data-test="filter-task">
-            <option value="">all</option>
-            <option v-for="t in taskOptions" :key="t" :value="t">{{ t }}</option>
-          </select>
-        </label>
-        <label>
-          Status
-          <select v-model="statusFilter" data-test="filter-status">
-            <option value="">all</option>
-            <option v-for="s in TRIAL_STATUSES" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </label>
-        <label>
-          Passed
-          <select v-model="passedFilter" data-test="filter-passed">
-            <option value="">all</option>
-            <option value="passed">passed</option>
-            <option value="failed">failed</option>
-          </select>
-        </label>
-        <span class="muted" data-test="showing">showing {{ visibleTrials.length }} of {{ trials ? trials.length : 0 }} trials</span>
-      </div>
-      <table class="trials">
-        <thead>
-          <tr>
-            <th>Config</th>
-            <th>Task</th>
-            <th class="num">Index</th>
-            <th>Status</th>
-            <th>Passed</th>
-            <th>Exit reason</th>
-            <th class="num">Steps</th>
-            <th class="num">Cost</th>
-            <th class="num">Latency</th>
-            <th class="num">Rate limit events</th>
-            <th>Error class</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="t in visibleTrials" :key="t.id" :data-trial="t.id">
-            <td>{{ configName(t.config_id) }}</td>
-            <td><RouterLink :to="`/trials/${t.id}`">{{ t.task_id }}</RouterLink></td>
-            <td class="num"><RouterLink :to="`/trials/${t.id}`">{{ t.trial_index }}</RouterLink></td>
-            <td><StatusChip :status="t.status" /></td>
-            <td :class="passedClass(t.passed)">{{ passedText(t.passed) }}</td>
-            <td>{{ t.exit_reason ?? '' }}</td>
-            <td class="num">{{ int(t.steps) }}</td>
-            <td class="num">{{ usd(t.cost_usd) }}</td>
-            <td class="num">{{ seconds(t.latency_ms) }}</td>
-            <td class="num">{{ t.rate_limit_events }}</td>
-            <td>{{ t.error_class ?? '' }}</td>
-          </tr>
-          <tr v-if="visibleTrials.length === 0">
-            <td colspan="11" class="muted">{{ trials === null ? 'Loading trials...' : 'No trials match.' }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <section>
+        <div class="section-title">
+          <h2>Trials</h2>
+          <span class="muted small" data-test="showing">showing {{ visibleTrials.length }} of {{ trials ? trials.length : 0 }} trials</span>
+        </div>
+        <div v-if="trialsError" class="error" data-test="trials-error">
+          <div>Could not load the trials: {{ trialsError.message }}</div>
+          <ul v-if="trialsError.reasons.length">
+            <li v-for="r in trialsError.reasons" :key="r">{{ r }}</li>
+          </ul>
+        </div>
+        <div class="row filters">
+          <label>
+            Config
+            <select v-model="configFilter" data-test="filter-config">
+              <option value="">all</option>
+              <option v-for="c in sortedConfigs" :key="c.id" :value="c.id">{{ configName(c.id) }}</option>
+            </select>
+          </label>
+          <label>
+            Task
+            <select v-model="taskFilter" data-test="filter-task">
+              <option value="">all</option>
+              <option v-for="t in taskOptions" :key="t" :value="t">{{ t }}</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select v-model="statusFilter" data-test="filter-status">
+              <option value="">all</option>
+              <option v-for="s in TRIAL_STATUSES" :key="s" :value="s">{{ s }}</option>
+            </select>
+          </label>
+          <label>
+            Passed
+            <select v-model="passedFilter" data-test="filter-passed">
+              <option value="">all</option>
+              <option value="passed">passed</option>
+              <option value="failed">failed</option>
+            </select>
+          </label>
+        </div>
+        <DataTable class="trials" max-height="640px">
+          <thead>
+            <tr>
+              <th>Config</th>
+              <th>Task</th>
+              <th class="num">Index</th>
+              <th>Status</th>
+              <th>Passed</th>
+              <th>Exit reason</th>
+              <th class="num">Steps</th>
+              <th class="num">Cost</th>
+              <th class="num">Latency</th>
+              <th class="num">Rate limit events</th>
+              <th>Error class</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in visibleTrials" :key="t.id" :data-trial="t.id" :data-href="`/trials/${t.id}`">
+              <td>{{ configName(t.config_id) }}</td>
+              <td class="mono"><RouterLink :to="`/trials/${t.id}`">{{ t.task_id }}</RouterLink></td>
+              <td class="num"><RouterLink :to="`/trials/${t.id}`">{{ t.trial_index }}</RouterLink></td>
+              <td><StatusChip :status="t.status" /></td>
+              <td :class="passedClass(t.passed)">{{ passedText(t.passed) }}</td>
+              <td class="mono small">{{ t.exit_reason ?? '' }}</td>
+              <td class="num">{{ int(t.steps) }}</td>
+              <td class="num">{{ usd(t.cost_usd) }}</td>
+              <td class="num">{{ seconds(t.latency_ms) }}</td>
+              <td class="num">{{ t.rate_limit_events }}</td>
+              <td class="mono small">{{ t.error_class ?? '' }}</td>
+            </tr>
+            <tr v-if="visibleTrials.length === 0">
+              <td colspan="11" class="muted">{{ trials === null ? 'Loading trials...' : 'No trials match.' }}</td>
+            </tr>
+          </tbody>
+        </DataTable>
+      </section>
 
       <details class="pinned" data-test="pinned-tasks">
         <summary>Tasks pinned to this experiment ({{ exp.tasks.length }})</summary>
-        <table>
+        <DataTable class="pinned-table">
           <thead>
             <tr><th>Task</th><th>Category</th><th>Version hash</th></tr>
           </thead>
           <tbody>
             <tr v-for="t in exp.tasks" :key="t.task_id">
-              <td>{{ t.task_id }}</td>
+              <td class="mono">{{ t.task_id }}</td>
               <td>{{ t.category }}</td>
               <td class="mono">{{ hashPrefix(t.task_version_hash) }}</td>
             </tr>
           </tbody>
-        </table>
+        </DataTable>
       </details>
 
-      <h2>Pilot</h2>
-      <div class="pilot" data-test="pilot">
-        <p class="muted small">Variance and projected interval widths only, to help choose N. This panel shows no comparison of the configs.</p>
+      <section class="panel pilot" data-test="pilot">
+        <div class="section-title">
+          <h2>Pilot</h2>
+          <span class="muted small">Variance and projected interval widths only, to help choose N. This panel shows no comparison of the configs.</span>
+        </div>
         <div v-if="pilotError" class="error" data-test="pilot-error">
           <div>Could not load the pilot: {{ pilotError.message }}</div>
           <ul v-if="pilotError.reasons.length">
@@ -438,54 +458,69 @@ const canCompare = computed(() => sortedConfigs.value.length >= 2 && pickA.value
         <p v-if="!pilot && !pilotError" class="muted">Loading pilot...</p>
         <template v-if="pilot">
           <div v-if="!pilot.ready" class="warn" data-test="pilot-reason">Not ready: {{ pilot.reason ?? 'no reason given' }}</div>
-          <dl class="meta">
-            <dt>Ready</dt><dd>{{ pilot.ready ? 'yes' : 'no' }}</dd>
-            <dt>Pilot trials per cell</dt><dd>{{ pilot.n_pilot }}</dd>
-            <dt>Tasks</dt><dd>{{ pilot.n_tasks }}</dd>
-            <dt>Judged tasks</dt><dd>{{ pilot.n_judged_tasks }}</dd>
-            <dt>Configs</dt><dd>{{ pilot.n_configs }}</dd>
-            <dt>Within-task variance</dt><dd>{{ num(pilot.within_task_variance, 4) }}</dd>
-            <dt>Bernoulli bound variance</dt><dd>{{ num(pilot.bernoulli_bound_variance, 4) }}</dd>
-            <dt>Target half-width</dt><dd>{{ num(pilot.target_half_width, 3) }}</dd>
-            <dt>N cap</dt><dd>{{ pilot.n_cap }}</dd>
-            <dt>Recommended N</dt><dd>{{ pilot.recommended_n === null ? 'none' : pilot.recommended_n }}</dd>
-            <dt>Capped</dt><dd>{{ pilot.capped ? 'yes' : 'no' }}</dd>
-          </dl>
-          <p v-if="pilot.recommendation_reason" data-test="pilot-recommendation">{{ pilot.recommendation_reason }}</p>
-          <table v-if="pilot.projections.length" class="projections">
-            <thead>
-              <tr>
-                <th class="num">N</th>
-                <th class="num">Half-width observed</th>
-                <th class="num">Half-width observed without judged</th>
-                <th class="num">Half-width bound</th>
-                <th class="num">Trials total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="p in pilot.projections" :key="p.n">
-                <td class="num">{{ p.n }}</td>
-                <td class="num">{{ num(p.half_width_observed) }}</td>
-                <td class="num">{{ num(p.half_width_observed_without_judged) }}</td>
-                <td class="num">{{ num(p.half_width_bound) }}</td>
-                <td class="num">{{ p.trials_total }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="pilot-body">
+            <dl class="meta kv">
+              <dt>Ready</dt><dd>{{ pilot.ready ? 'yes' : 'no' }}</dd>
+              <dt>Pilot trials per cell</dt><dd class="mono">{{ pilot.n_pilot }}</dd>
+              <dt>Tasks</dt><dd class="mono">{{ pilot.n_tasks }}</dd>
+              <dt>Judged tasks</dt><dd class="mono">{{ pilot.n_judged_tasks }}</dd>
+              <dt>Configs</dt><dd class="mono">{{ pilot.n_configs }}</dd>
+              <dt>Within-task variance</dt><dd class="mono">{{ num(pilot.within_task_variance, 4) }}</dd>
+              <dt>Bernoulli bound variance</dt><dd class="mono">{{ num(pilot.bernoulli_bound_variance, 4) }}</dd>
+              <dt>Target half-width</dt><dd class="mono">{{ num(pilot.target_half_width, 3) }}</dd>
+              <dt>N cap</dt><dd class="mono">{{ pilot.n_cap }}</dd>
+              <dt>Recommended N</dt><dd class="mono">{{ pilot.recommended_n === null ? 'none' : pilot.recommended_n }}</dd>
+              <dt>Capped</dt><dd>{{ pilot.capped ? 'yes' : 'no' }}</dd>
+            </dl>
+            <div class="stack">
+              <p v-if="pilot.recommendation_reason" data-test="pilot-recommendation">{{ pilot.recommendation_reason }}</p>
+              <DataTable v-if="pilot.projections.length" class="projections">
+                <thead>
+                  <tr>
+                    <th class="num">N</th>
+                    <th class="num">Half-width observed</th>
+                    <th class="num">Half-width observed without judged</th>
+                    <th class="num">Half-width bound</th>
+                    <th class="num">Trials total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="p in pilot.projections" :key="p.n">
+                    <td class="num">{{ p.n }}</td>
+                    <td class="num">{{ num(p.half_width_observed) }}</td>
+                    <td class="num">{{ num(p.half_width_observed_without_judged) }}</td>
+                    <td class="num">{{ num(p.half_width_bound) }}</td>
+                    <td class="num">{{ p.trials_total }}</td>
+                  </tr>
+                </tbody>
+              </DataTable>
+            </div>
+          </div>
         </template>
-      </div>
+      </section>
     </template>
   </section>
 </template>
 
 <style scoped>
-.hypothesis { margin: 10px 0; border-left: 4px solid var(--link); }
-.hypothesis-text { font-size: 15px; white-space: pre-wrap; }
-.meta { display: grid; grid-template-columns: 200px 1fr; gap: 2px 12px; margin: 8px 0; max-width: 760px; }
-.meta dt { color: var(--muted); }
-.meta dd { margin: 0; }
-.filters label { display: inline-flex; gap: 4px; align-items: center; }
-progress { width: 160px; height: 8px; margin-left: 8px; }
-.pinned { margin: 12px 0; }
-.pilot table { max-width: 760px; }
+.page-head h1 { font-size: var(--fs-20); }
+.paused { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.overview { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: var(--space-4); align-items: stretch; }
+.hypothesis { display: flex; flex-direction: column; gap: var(--space-2); }
+.hypothesis-text { font-size: var(--fs-14); line-height: 1.6; white-space: pre-wrap; max-width: 75ch; }
+.run progress { width: 100%; margin-top: 6px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-4); background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-card); }
+.toolbar-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.extend { display: inline-flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+.extend input { width: 72px; }
+.filters { gap: var(--space-4); margin-bottom: var(--space-3); }
+.filters label { display: inline-flex; gap: var(--space-2); align-items: center; font-size: var(--fs-12); color: var(--text-muted); }
+.pinned { display: flex; flex-direction: column; gap: var(--space-3); }
+.pinned > summary { margin-bottom: var(--space-3); }
+.pilot-body { display: grid; grid-template-columns: minmax(260px, auto) minmax(0, 1fr); gap: var(--space-5); margin-top: var(--space-3); align-items: start; }
+.pilot .section-title { flex-wrap: wrap; }
+
+@media (max-width: 1180px) {
+  .overview, .pilot-body { grid-template-columns: minmax(0, 1fr); }
+}
 </style>

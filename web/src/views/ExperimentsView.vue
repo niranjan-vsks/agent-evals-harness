@@ -5,6 +5,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, ApiError } from '../api/client';
 import type { CreateExperimentBody, Experiment, Phase, Task, TaskCategory } from '../api/types';
+import DataTable from '../components/DataTable.vue';
+import EmptyState from '../components/EmptyState.vue';
+import Skeleton from '../components/Skeleton.vue';
 import StatusChip from '../components/StatusChip.vue';
 import { hashPrefix, when } from '../lib/format';
 import { useAppStore } from '../stores/app';
@@ -182,8 +185,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section>
-    <h1>Experiments</h1>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>Experiments</h1>
+        <p class="page-sub">Each experiment runs 2 or more configs over the same pinned tasks, N trials per cell, against a hypothesis written down first.</p>
+      </div>
+      <a href="#new-experiment" class="btn">New experiment</a>
+    </header>
 
     <div v-if="listError" class="error" data-test="list-error">
       <div>Could not load the experiments: {{ listError.message }}</div>
@@ -191,10 +200,13 @@ onBeforeUnmount(() => {
         <li v-for="r in listError.reasons" :key="r">{{ r }}</li>
       </ul>
     </div>
-    <p v-if="experiments === null && !listError" class="muted">Loading experiments...</p>
-    <p v-else-if="experiments !== null && experiments.length === 0" class="muted">No experiments yet. Use the form below to create the first.</p>
+    <div v-if="experiments === null && !listError" class="panel panel-flush">
+      <Skeleton :rows="3" />
+      <p class="muted small loading-text">Loading experiments...</p>
+    </div>
+    <EmptyState v-else-if="experiments !== null && experiments.length === 0" title="No experiments yet.">Create one from 2 configs with the form below.</EmptyState>
 
-    <table v-if="experiments && experiments.length" class="experiments">
+    <DataTable v-if="experiments && experiments.length" class="experiments">
       <thead>
         <tr>
           <th>Name</th>
@@ -208,126 +220,151 @@ onBeforeUnmount(() => {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="e in experiments" :key="e.id" :data-experiment="e.id">
-          <td>
+        <tr v-for="e in experiments" :key="e.id" :data-experiment="e.id" :data-href="`/experiments/${e.id}`">
+          <td class="exp-name wrap">
             <RouterLink :to="`/experiments/${e.id}`">{{ e.name }}</RouterLink>
           </td>
           <td>
-            <StatusChip :status="e.status" />
-            <StatusChip v-if="e.paused" status="paused" :title="e.pause_reason ?? ''" />
+            <span class="row chips">
+              <StatusChip :status="e.status" />
+              <StatusChip v-if="e.paused" status="paused" :title="e.pause_reason ?? ''" />
+            </span>
           </td>
-          <td>
+          <td class="progress-cell wrap">
             <div class="counts">{{ counts(e) }}</div>
             <progress :value="finished(e)" :max="e.progress.total || 1" :aria-label="`progress of ${e.name}`" />
           </td>
           <td class="num">{{ e.n_trials }}</td>
-          <td>{{ e.phase }}</td>
-          <td>{{ e.axis ?? '' }}</td>
-          <td class="hypothesis" :title="e.hypothesis ?? ''">{{ shortHypothesis(e.hypothesis) }}</td>
-          <td class="small">{{ when(e.created_at) }}</td>
+          <td class="mono small">{{ e.phase }}</td>
+          <td class="wrap axis-cell">{{ e.axis ?? '' }}</td>
+          <td class="hypothesis wrap muted" :title="e.hypothesis ?? ''">{{ shortHypothesis(e.hypothesis) }}</td>
+          <td class="mono small muted">{{ when(e.created_at) }}</td>
         </tr>
       </tbody>
-    </table>
+    </DataTable>
 
-    <h2>New experiment</h2>
-    <div v-if="loadError" class="error" data-test="load-error">
-      <div>Could not load the configs or tasks: {{ loadError.message }}</div>
-      <ul v-if="loadError.reasons.length">
-        <li v-for="r in loadError.reasons" :key="r">{{ r }}</li>
-      </ul>
-    </div>
-
-    <form class="form-grid" novalidate @submit.prevent="submit">
-      <label for="exp-name">Name</label>
-      <div><input id="exp-name" v-model="name" type="text" required /></div>
-
-      <label>Configs</label>
-      <div>
-        <p v-if="configs.length === 0" class="muted">No configs yet. Create 2 on the Configs page first.</p>
-        <div v-for="c in configs" :key="c.id" class="check config-option">
-          <label>
-            <input type="checkbox" :value="c.id" :checked="checkedConfigs.includes(c.id)" @change="toggleConfig(c.id, ($event.target as HTMLInputElement).checked)" />
-            <strong>{{ c.name }}</strong>
-            <span class="muted">
-              {{ c.harness_id }}@{{ c.harness_version }}, {{ c.model_slug }},
-              <span class="mono">{{ hashPrefix(c.config_hash) }}</span>
-            </span>
-            <span v-if="orderOf(c.id)" class="badge order">#{{ orderOf(c.id) }}</span>
-          </label>
-        </div>
-        <p class="muted small">Check at least 2. The order you check them in is the order they are sent.</p>
+    <section id="new-experiment" class="panel">
+      <div class="section-title">
+        <h2>New experiment</h2>
+        <span class="small muted">It starts as a draft; nothing runs until you press Start on its page.</span>
+      </div>
+      <div v-if="loadError" class="error form-msg" data-test="load-error">
+        <div>Could not load the configs or tasks: {{ loadError.message }}</div>
+        <ul v-if="loadError.reasons.length">
+          <li v-for="r in loadError.reasons" :key="r">{{ r }}</li>
+        </ul>
       </div>
 
-      <label>Tasks</label>
-      <div>
-        <div class="row">
-          <button type="button" data-test="tasks-all" @click="selectAllTasks">Select all</button>
-          <button type="button" data-test="tasks-none" @click="selectNoTasks">Select none</button>
-          <span class="muted small" data-test="task-count">{{ checkedTasks.length }} of {{ tasks.length }} tasks checked</span>
+      <form class="form-grid" novalidate @submit.prevent="submit">
+        <label for="exp-name">Name</label>
+        <div><input id="exp-name" v-model="name" type="text" required /></div>
+
+        <label>Configs</label>
+        <div>
+          <p v-if="configs.length === 0" class="muted">No configs yet. Create 2 on the Configs page first.</p>
+          <div class="option-list">
+            <div v-for="c in configs" :key="c.id" class="check config-option" :class="{ on: orderOf(c.id) > 0 }">
+              <label>
+                <input type="checkbox" :value="c.id" :checked="checkedConfigs.includes(c.id)" @change="toggleConfig(c.id, ($event.target as HTMLInputElement).checked)" />
+                <strong>{{ c.name }}</strong>
+                <span class="muted small">
+                  {{ c.harness_id }}@{{ c.harness_version }}, {{ c.model_slug }},
+                  <span class="mono">{{ hashPrefix(c.config_hash) }}</span>
+                </span>
+                <span v-if="orderOf(c.id)" class="badge order">#{{ orderOf(c.id) }}</span>
+              </label>
+            </div>
+          </div>
+          <p class="hint">Check at least 2. The order you check them in is the order they are sent.</p>
         </div>
-        <div v-for="g in taskGroups" :key="g.category" class="task-group">
-          <h3>{{ g.category }} ({{ g.tasks.length }})</h3>
-          <div v-for="t in g.tasks" :key="t.id" class="check task-option">
-            <label>
-              <input type="checkbox" :value="t.id" :checked="checkedTasks.includes(t.id)" @change="toggleTask(t.id, ($event.target as HTMLInputElement).checked)" />
-              <span class="mono">{{ t.id }}</span>
-              <span class="muted small mono">{{ hashPrefix(t.version_hash) }}</span>
-            </label>
+
+        <label>Tasks</label>
+        <div>
+          <div class="row">
+            <button type="button" data-test="tasks-all" @click="selectAllTasks">Select all</button>
+            <button type="button" data-test="tasks-none" @click="selectNoTasks">Select none</button>
+            <span class="muted small" data-test="task-count">{{ checkedTasks.length }} of {{ tasks.length }} tasks checked</span>
+          </div>
+          <div class="task-groups">
+            <div v-for="g in taskGroups" :key="g.category" class="task-group">
+              <h3>{{ g.category }} ({{ g.tasks.length }})</h3>
+              <div v-for="t in g.tasks" :key="t.id" class="check task-option">
+                <label>
+                  <input type="checkbox" :value="t.id" :checked="checkedTasks.includes(t.id)" @change="toggleTask(t.id, ($event.target as HTMLInputElement).checked)" />
+                  <span class="mono">{{ t.id }}</span>
+                  <span class="muted small mono">{{ hashPrefix(t.version_hash) }}</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
+
+        <label for="exp-n">N (trials per cell)</label>
+        <div><input id="exp-n" v-model="nTrials" type="number" min="1" step="1" class="num-input" /></div>
+
+        <label for="exp-seed">Seed</label>
+        <div>
+          <input id="exp-seed" v-model="seed" type="text" inputmode="numeric" placeholder="optional" />
+          <div class="hint">Leave empty and the API picks a seed; it is recorded on the experiment.</div>
+        </div>
+
+        <label for="exp-axis">Axis</label>
+        <div><input id="exp-axis" v-model="axis" type="text" placeholder="optional, e.g. memory off vs seeded" /></div>
+
+        <label for="exp-hypothesis">Hypothesis</label>
+        <div>
+          <textarea id="exp-hypothesis" v-model="hypothesis" required />
+          <div class="hint">Required. It is pre-registered: it cannot be changed after the experiment leaves draft.</div>
+        </div>
+
+        <label for="exp-phase">Phase</label>
+        <div>
+          <select id="exp-phase" v-model="phase">
+            <option value="pilot">pilot</option>
+            <option value="full">full</option>
+          </select>
+        </div>
+
+        <span />
+        <div>
+          <button type="submit" class="primary" :disabled="submitting" data-test="submit">{{ submitting ? 'Creating...' : 'Create experiment' }}</button>
+        </div>
+      </form>
+
+      <div v-if="problems.length" class="error form-msg" data-test="form-problems">
+        <div>The experiment was not created:</div>
+        <ul>
+          <li v-for="p in problems" :key="p">{{ p }}</li>
+        </ul>
       </div>
-
-      <label for="exp-n">N (trials per cell)</label>
-      <div><input id="exp-n" v-model="nTrials" type="number" min="1" step="1" /></div>
-
-      <label for="exp-seed">Seed</label>
-      <div>
-        <input id="exp-seed" v-model="seed" type="text" inputmode="numeric" placeholder="optional" />
-        <span class="muted small"> Leave empty and the API picks a seed; it is recorded on the experiment.</span>
+      <div v-if="submitError" class="error form-msg" data-test="submit-error">
+        <div>{{ submitError.message }}</div>
+        <ul v-if="submitError.reasons.length">
+          <li v-for="r in submitError.reasons" :key="r">{{ r }}</li>
+        </ul>
       </div>
-
-      <label for="exp-axis">Axis</label>
-      <div><input id="exp-axis" v-model="axis" type="text" placeholder="optional, e.g. memory off vs seeded" /></div>
-
-      <label for="exp-hypothesis">Hypothesis</label>
-      <div>
-        <textarea id="exp-hypothesis" v-model="hypothesis" required />
-        <div class="muted small">Required. It is pre-registered: it cannot be changed after the experiment leaves draft.</div>
-      </div>
-
-      <label for="exp-phase">Phase</label>
-      <div>
-        <select id="exp-phase" v-model="phase">
-          <option value="pilot">pilot</option>
-          <option value="full">full</option>
-        </select>
-      </div>
-
-      <span />
-      <div>
-        <button type="submit" class="primary" :disabled="submitting" data-test="submit">{{ submitting ? 'Creating...' : 'Create experiment' }}</button>
-      </div>
-    </form>
-
-    <div v-if="problems.length" class="error" data-test="form-problems">
-      <div>The experiment was not created:</div>
-      <ul>
-        <li v-for="p in problems" :key="p">{{ p }}</li>
-      </ul>
-    </div>
-    <div v-if="submitError" class="error" data-test="submit-error">
-      <div>{{ submitError.message }}</div>
-      <ul v-if="submitError.reasons.length">
-        <li v-for="r in submitError.reasons" :key="r">{{ r }}</li>
-      </ul>
-    </div>
-  </section>
+    </section>
+  </div>
 </template>
 
 <style scoped>
-.counts { font-size: 12px; margin-bottom: 2px; }
-progress { width: 160px; height: 8px; }
-.hypothesis { max-width: 320px; }
-.check label { font-weight: normal; display: flex; gap: 6px; align-items: baseline; padding: 1px 0; }
-.task-group h3 { margin: 10px 0 2px; }
+.counts { font-family: var(--font-mono); font-size: var(--fs-12); color: var(--text-muted); margin-bottom: 6px; }
+.exp-name { white-space: normal; min-width: 200px; }
+.exp-name a { color: var(--text); font-weight: var(--fw-strong); }
+.exp-name a:hover { color: var(--accent-text); }
+.chips { flex-wrap: nowrap; gap: 6px; }
+.axis-cell { min-width: 140px; max-width: 200px; }
+.hypothesis { min-width: 200px; max-width: 280px; font-size: var(--fs-12); }
+.progress-cell { white-space: normal; min-width: 200px; max-width: 240px; }
+.loading-text { padding: 0 var(--space-3) var(--space-3); }
+.option-list { display: flex; flex-direction: column; gap: 6px; }
+.check label { font-weight: var(--fw-regular); display: flex; gap: var(--space-2); align-items: center; padding: 2px 0; cursor: pointer; }
+.config-option label { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-2); transition: border-color var(--dur-fast) var(--ease-out); }
+.config-option label:hover { border-color: var(--border-strong); }
+.config-option.on label { border-color: var(--accent); }
+.order { margin-left: auto; }
+.task-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-4) var(--space-5); margin-top: var(--space-3); }
+.task-group h3 { margin: 0 0 var(--space-1); font-family: var(--font-mono); font-size: var(--fs-12); color: var(--text-muted); }
+.num-input { width: 120px; }
+.form-msg { margin-top: var(--space-4); max-width: 820px; }
 </style>

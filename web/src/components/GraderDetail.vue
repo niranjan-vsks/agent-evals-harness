@@ -176,11 +176,16 @@ const d = (key: string): unknown => details.value?.[key];
 </template>
 
 <style scoped>
-.grader { margin: 8px 0; }
-.grader-head { gap: 12px; margin-bottom: 6px; }
-.grader-verdict { font-size: 15px; }
-.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
-.grader pre { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 3px 0 6px; max-height: 360px; overflow: auto; }
-.grader table { margin: 4px 0 8px; }
-.grader details { margin-top: 6px; }
+.grader { display: flex; flex-direction: column; gap: var(--space-2); }
+.grader-head { gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.grader-head strong { font-size: var(--fs-13); }
+.grader-verdict { display: inline-flex; align-items: center; height: 22px; padding: 0 10px; border-radius: var(--radius-pill); font-size: var(--fs-12); }
+.grader-verdict.pass { background: var(--pass-tint); }
+.grader-verdict.fail { background: var(--fail-tint); }
+.grader-head .muted:last-child { margin-left: auto; font-family: var(--font-mono); }
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.grader pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-2) var(--space-3); margin: var(--space-1) 0 var(--space-2); max-height: 360px; overflow: auto; font-size: var(--fs-12); }
+.grader table { margin: var(--space-1) 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; }
+.grader table td:nth-child(2) { white-space: nowrap; }
+.grader details { margin-top: var(--space-1); }
 </style>

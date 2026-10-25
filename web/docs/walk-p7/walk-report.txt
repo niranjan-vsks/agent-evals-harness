@@ -1,0 +1,24 @@
+mem-05 failed under off: 01M5SRTYYFKEFMG9GHK40QFHQQ mem-05-lint | passed under seeded: 01M5SRTYYFKEFMG9GHK40QFHQR
+dark 1440px 1-experiment: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1440px 2-compare: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1440px 3-trial-failed-mem05-off: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1440px 4-trial-passed-mem05-seeded: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1440px console errors: none
+dark 1024px 1-experiment: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1024px 2-compare: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1024px 3-trial-failed-mem05-off: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1024px 4-trial-passed-mem05-seeded: data-theme=dark horizontal overflow=0px body bg=rgb(11, 18, 32) font=Inter inter loaded=true
+dark 1024px console errors: none
+light 1440px 1-experiment: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1440px 2-compare: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1440px 3-trial-failed-mem05-off: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1440px 4-trial-passed-mem05-seeded: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1440px console errors: none
+light 1024px 1-experiment: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1024px 2-compare: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1024px 3-trial-failed-mem05-off: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1024px 4-trial-passed-mem05-seeded: data-theme=light horizontal overflow=0px body bg=rgb(246, 248, 251) font=Inter inter loaded=true
+light 1024px console errors: none
+toggle: before click dark, | after click light,light | after reload light,light,true
+toggle back: after reload dark,dark
+system light, nothing stored: data-theme=light

@@ -6,6 +6,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ApiError, api } from '../api/client';
 import type { ExperimentDetail, FailureEvidence, FullTrace, GraderResult, PartialTrace, Task, Trace, TraceEvent as TraceEv, Trial } from '../api/types';
 import GraderDetail from '../components/GraderDetail.vue';
+import Skeleton from '../components/Skeleton.vue';
 import StatusChip from '../components/StatusChip.vue';
 import TraceEvent from '../components/TraceEvent.vue';
 import { FAILURE_RULE } from '../lib/failures';
@@ -328,8 +329,11 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
 </script>
 
 <template>
-  <div ref="root" class="trial-view">
-    <p v-if="loading" class="muted">Loading trial...</p>
+  <div ref="root" class="trial-view page">
+    <div v-if="loading" class="panel">
+      <Skeleton variant="lines" :rows="5" />
+      <p class="muted small">Loading trial...</p>
+    </div>
 
     <div v-else-if="trialError" class="error" role="alert" data-test="trial-error">
       <strong>Could not load trial {{ id }}: {{ trialError.message }}</strong>
@@ -340,9 +344,8 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
 
     <template v-else-if="trial">
       <!-- 1. HEADER -->
-      <section data-test="header">
-        <h1>Trial <span class="mono" data-test="trial-id">{{ trial.id }}</span></h1>
-        <p>
+      <section class="trial-head" data-test="header">
+        <p class="crumb">
           <RouterLink :to="`/experiments/${trial.experiment_id}`" data-test="back-link">Back to experiment {{ experiment ? experiment.name : shortId(trial.experiment_id) }}</RouterLink>
         </p>
         <div v-if="experimentError" class="error" role="alert" data-test="experiment-error">
@@ -353,33 +356,38 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
         </div>
 
         <div class="top-line">
-          <span class="big-verdict" :class="trial.passed === true ? 'pass' : trial.passed === false ? 'fail' : 'muted'" data-test="verdict">
+          <span class="big-verdict verdict-pill" :class="trial.passed === true ? 'pass' : trial.passed === false ? 'fail' : 'muted'" data-test="verdict">
             {{ trial.passed === true ? 'PASS' : trial.passed === false ? 'FAIL' : 'no verdict' }}
           </span>
-          <span>exit reason <strong data-test="exit-reason">{{ trial.exit_reason ?? 'none' }}</strong></span>
-          <span>steps <strong data-test="steps">{{ int(trial.steps) }}</strong></span>
-          <StatusChip :status="trial.status" />
+          <div class="title-block">
+            <h1>Trial <span class="mono trial-id" data-test="trial-id">{{ trial.id }}</span></h1>
+            <div class="facts">
+              <span>exit reason <strong class="mono" data-test="exit-reason">{{ trial.exit_reason ?? 'none' }}</strong></span>
+              <span>steps <strong class="mono" data-test="steps">{{ int(trial.steps) }}</strong></span>
+              <StatusChip :status="trial.status" />
+            </div>
+          </div>
         </div>
 
         <div v-if="trial.error_class || trial.error_message" class="error" data-test="trial-error-info">
           <strong>error class {{ trial.error_class ?? 'none' }}</strong><template v-if="trial.error_message">: {{ trial.error_message }}</template>
         </div>
 
-        <dl class="kv">
+        <dl class="kv card trial-kv">
           <dt>Config</dt><dd data-test="config-name">{{ configName }}</dd>
           <dt>Task</dt><dd class="mono">{{ trial.task_id }}</dd>
-          <dt>Trial index</dt><dd>{{ trial.trial_index }}</dd>
-          <dt>Attempts</dt><dd>{{ trial.attempt_count }}</dd>
-          <dt>Cost</dt><dd>{{ usd(trial.cost_usd) }}</dd>
-          <dt>Latency</dt><dd>{{ seconds(trial.latency_ms) }}</dd>
-          <dt>Input tokens</dt><dd>{{ int(trial.input_tokens) }}</dd>
-          <dt>Output tokens</dt><dd>{{ int(trial.output_tokens) }}</dd>
-          <dt>Cache-read tokens</dt><dd>{{ int(trial.cache_read_tokens) }}</dd>
-          <dt>Reasoning tokens</dt><dd>{{ int(trial.reasoning_tokens) }}</dd>
-          <dt>API calls</dt><dd>{{ int(trial.api_calls) }}</dd>
-          <dt>Rate-limit events</dt><dd>{{ trial.rate_limit_events }}</dd>
-          <dt>Started</dt><dd>{{ when(trial.started_at) }}</dd>
-          <dt>Ended</dt><dd>{{ when(trial.ended_at) }}</dd>
+          <dt>Trial index</dt><dd class="mono">{{ trial.trial_index }}</dd>
+          <dt>Attempts</dt><dd class="mono">{{ trial.attempt_count }}</dd>
+          <dt>Cost</dt><dd class="mono">{{ usd(trial.cost_usd) }}</dd>
+          <dt>Latency</dt><dd class="mono">{{ seconds(trial.latency_ms) }}</dd>
+          <dt>Input tokens</dt><dd class="mono">{{ int(trial.input_tokens) }}</dd>
+          <dt>Output tokens</dt><dd class="mono">{{ int(trial.output_tokens) }}</dd>
+          <dt>Cache-read tokens</dt><dd class="mono">{{ int(trial.cache_read_tokens) }}</dd>
+          <dt>Reasoning tokens</dt><dd class="mono">{{ int(trial.reasoning_tokens) }}</dd>
+          <dt>API calls</dt><dd class="mono">{{ int(trial.api_calls) }}</dd>
+          <dt>Rate-limit events</dt><dd class="mono">{{ trial.rate_limit_events }}</dd>
+          <dt>Started</dt><dd class="mono">{{ when(trial.started_at) }}</dd>
+          <dt>Ended</dt><dd class="mono">{{ when(trial.ended_at) }}</dd>
         </dl>
       </section>
 
@@ -397,14 +405,15 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
       </div>
 
       <!-- 2. WHY IT FAILED -->
-      <section v-if="trial.passed === false" data-test="why">
+      <section v-if="trial.passed === false" class="panel why" data-test="why">
         <h2>Why it failed</h2>
         <div v-if="trial.failure_category" class="failure-category" data-test="failure-category">
-          <div>
-            Failure category <strong class="mono" data-test="failure-category-name">{{ trial.failure_category }}</strong>
+          <div class="fc-line">
+            <span class="muted small">Failure category</span>
+            <strong class="mono fc-name" data-test="failure-category-name">{{ trial.failure_category }}</strong>
             <span class="muted small" data-test="failure-rule">rule {{ evidence?.rule ?? '?' }}: {{ FAILURE_RULE[trial.failure_category] }}</span>
           </div>
-          <div v-if="evidence" data-test="failure-detail">{{ evidence.detail }}</div>
+          <div v-if="evidence" class="fc-detail" data-test="failure-detail">{{ evidence.detail }}</div>
           <div v-if="evidence && (evidence.event_seq !== undefined || evidence.related_event_seq !== undefined || evidence.grader_index !== undefined)" class="row" data-test="failure-evidence">
             <span class="muted small">evidence</span>
             <template v-if="evidence.event_seq !== undefined">
@@ -434,59 +443,64 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
       </section>
 
       <!-- 3. GRADER RESULTS -->
-      <section data-test="graders">
-        <h2>Grader results</h2>
+      <section class="graders" data-test="graders">
+        <div class="section-title"><h2>Grader results</h2></div>
         <p v-if="!graderResults.length" class="muted">No grader results were recorded for this trial.</p>
         <GraderDetail v-for="g in graderResults" :key="g.grader_index" :result="g" />
       </section>
 
       <!-- 4. TASK PROMPT and FINAL RESPONSE -->
-      <section data-test="prompt">
-        <h2>Task prompt</h2>
-        <template v-if="promptText !== null">
-          <div class="small muted">taken from {{ promptSource }}</div>
-          <pre class="block" data-test="prompt-text">{{ promptText }}</pre>
-          <p v-if="promptTruncation && userPrompt !== null" class="warn small" data-test="prompt-truncated">{{ promptTruncation }}</p>
-        </template>
-        <template v-else>
-          <p v-if="!tasksChecked" class="muted">Looking up the task prompt...</p>
-          <p v-else class="muted" data-test="prompt-unavailable">
-            task prompt unavailable: the trace has no user message, and the task registry has no task {{ trial.task_id }} with version hash {{ shortId(trial.task_version_hash) }}
-          </p>
-          <div v-if="tasksError" class="error" role="alert">
-            <strong>Could not load the task registry: {{ tasksError.message }}</strong>
-            <ul v-if="tasksError.reasons.length">
-              <li v-for="(r, i) in tasksError.reasons" :key="i">{{ r }}</li>
-            </ul>
-          </div>
-        </template>
-      </section>
+      <div class="io">
+        <section class="panel" data-test="prompt">
+          <h2>Task prompt</h2>
+          <template v-if="promptText !== null">
+            <div class="small muted">taken from {{ promptSource }}</div>
+            <pre class="block" data-test="prompt-text">{{ promptText }}</pre>
+            <p v-if="promptTruncation && userPrompt !== null" class="warn small" data-test="prompt-truncated">{{ promptTruncation }}</p>
+          </template>
+          <template v-else>
+            <p v-if="!tasksChecked" class="muted">Looking up the task prompt...</p>
+            <p v-else class="muted" data-test="prompt-unavailable">
+              task prompt unavailable: the trace has no user message, and the task registry has no task {{ trial.task_id }} with version hash {{ shortId(trial.task_version_hash) }}
+            </p>
+            <div v-if="tasksError" class="error" role="alert">
+              <strong>Could not load the task registry: {{ tasksError.message }}</strong>
+              <ul v-if="tasksError.reasons.length">
+                <li v-for="(r, i) in tasksError.reasons" :key="i">{{ r }}</li>
+              </ul>
+            </div>
+          </template>
+        </section>
 
-      <section v-if="fullTrace" data-test="final-response">
-        <h2>Final response</h2>
-        <pre v-if="fullTrace.final_response !== null" class="block">{{ fullTrace.final_response }}</pre>
-        <p v-else class="muted">The trial recorded no final response.</p>
-      </section>
+        <section v-if="fullTrace" class="panel" data-test="final-response">
+          <h2>Final response</h2>
+          <pre v-if="fullTrace.final_response !== null" class="block">{{ fullTrace.final_response }}</pre>
+          <p v-else class="muted">The trial recorded no final response.</p>
+        </section>
+      </div>
 
       <!-- 5. EVENT TIMELINE -->
-      <section data-test="timeline">
-        <h2>Event timeline</h2>
-        <p v-if="!events.length" class="muted">The trace has no events.</p>
+      <section class="panel panel-flush timeline" data-test="timeline">
+        <div class="section-title">
+          <h2>Event timeline</h2>
+          <p v-if="events.length && !windowed" class="small muted" data-test="shown-count">{{ filtered.length }} of {{ events.length }} events shown</p>
+        </div>
+        <p v-if="!events.length" class="muted timeline-empty">The trace has no events.</p>
         <template v-else>
           <div class="row timeline-controls">
             <button type="button" data-test="expand-all" @click="expandAll">Expand all</button>
             <button type="button" data-test="collapse-all" @click="collapseAll">Collapse all</button>
-            <label v-for="k in kindCounts" :key="k.kind" class="kind-filter small">
+            <span class="divider" aria-hidden="true" />
+            <label v-for="k in kindCounts" :key="k.kind" class="kind-filter small" :class="{ off: disabledKinds.has(k.kind) }">
               <input type="checkbox" :checked="!disabledKinds.has(k.kind)" :data-kind-filter="k.kind" @change="setKind(k.kind, ($event.target as HTMLInputElement).checked)" />
               {{ k.label }} ({{ k.count }})
             </label>
           </div>
           <div v-if="windowed" class="row pager" data-test="pager">
             <button type="button" data-test="prev" :disabled="windowStart === 0" @click="prev">Previous</button>
-            <span data-test="window-text">{{ windowText }}</span>
+            <span class="mono small" data-test="window-text">{{ windowText }}</span>
             <button type="button" data-test="next" :disabled="windowStart + 200 >= filtered.length" @click="next">Next</button>
           </div>
-          <p v-else class="small muted" data-test="shown-count">{{ filtered.length }} of {{ events.length }} events shown</p>
           <ol class="events">
             <TraceEvent v-for="e in visible" :key="e.seq" :event="e" :expanded="expanded.has(e.seq)" :paired="pairedWith(e)" :focused="focusedSeq === e.seq" @toggle="toggle" />
           </ol>
@@ -494,7 +508,7 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
       </section>
 
       <!-- 6. MEMORY -->
-      <section v-if="fullTrace" data-test="memory">
+      <section v-if="fullTrace" class="panel memory" data-test="memory">
         <h2>Memory</h2>
         <p v-if="memoryChanged" class="notice" data-test="memory-changed">memory changed during the trial</p>
         <p v-if="!memoryFiles.length" class="muted">No memory files were present at the start or at the end of the trial.</p>
@@ -513,20 +527,26 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
             </div>
           </div>
         </details>
-        <h3>Skills invoked</h3>
-        <ul v-if="fullTrace.skills_invoked.length" data-test="skills">
-          <li v-for="(s, i) in fullTrace.skills_invoked" :key="i" class="mono">{{ s }}</li>
-        </ul>
-        <p v-else class="muted small">none</p>
-        <h3>Adapter notes</h3>
-        <ul v-if="fullTrace.notes.length" data-test="notes">
-          <li v-for="(n, i) in fullTrace.notes" :key="i">{{ n }}</li>
-        </ul>
-        <p v-else class="muted small">none</p>
+        <div class="mem-lists">
+          <div>
+            <h3>Skills invoked</h3>
+            <ul v-if="fullTrace.skills_invoked.length" data-test="skills">
+              <li v-for="(s, i) in fullTrace.skills_invoked" :key="i" class="mono">{{ s }}</li>
+            </ul>
+            <p v-else class="muted small">none</p>
+          </div>
+          <div>
+            <h3>Adapter notes</h3>
+            <ul v-if="fullTrace.notes.length" data-test="notes">
+              <li v-for="(n, i) in fullTrace.notes" :key="i">{{ n }}</li>
+            </ul>
+            <p v-else class="muted small">none</p>
+          </div>
+        </div>
       </section>
 
       <!-- 7. SYSTEM PROMPT -->
-      <section v-if="fullTrace" data-test="system-prompt-section">
+      <section v-if="fullTrace" class="panel" data-test="system-prompt-section">
         <h2>System prompt</h2>
         <details v-if="systemPrompt !== null" data-test="system-prompt">
           <summary>System prompt ({{ systemPrompt.length }} characters)</summary>
@@ -539,22 +559,53 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
 </template>
 
 <style scoped>
-.top-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 18px; margin: 8px 0; font-size: 15px; }
-.big-verdict { font-size: 30px; font-weight: 700; letter-spacing: 1px; }
-.kv { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 3px 16px; margin: 8px 0; max-width: 900px; }
-.kv dt { color: var(--muted); }
-.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
-.block { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; max-height: 480px; overflow: auto; }
-.failure-category { border: 1px solid var(--line); background: var(--bg-soft); border-radius: 4px; padding: 6px 10px; margin: 6px 0; }
-.failure-category .row { gap: 8px; margin-top: 4px; }
-.why-list { list-style: none; padding: 0; margin: 0; }
-.why-item { border: 1px solid var(--bad); background: var(--bad-bg); border-radius: 4px; padding: 6px 10px; margin: 6px 0; }
-.why-line { margin: 2px 0; }
-.why-reasoning { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin-top: 3px; }
-.timeline-controls { margin-bottom: 6px; gap: 12px; }
-.kind-filter { display: inline-flex; align-items: center; gap: 4px; }
-.pager { margin: 6px 0; gap: 12px; }
-.events { margin: 6px 0 0; padding: 0; border-top: 1px solid var(--line); }
-.mem-file { margin: 6px 0; }
-.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.trial-head { display: flex; flex-direction: column; gap: var(--space-4); }
+.top-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-5); }
+.big-verdict { min-width: 112px; justify-content: center; }
+.title-block { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.trial-id { font-size: var(--fs-16); font-weight: var(--fw-regular); color: var(--text-muted); }
+.facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); font-size: var(--fs-13); color: var(--text-muted); }
+.facts strong { color: var(--text); }
+.trial-kv { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr) max-content minmax(0, 1fr); gap: var(--space-2) var(--space-5); }
+.trial-kv dd { font-size: var(--fs-12); align-self: center; }
+
+.why { display: flex; flex-direction: column; gap: var(--space-3); border-color: rgb(255 92 108 / 0.35); }
+.failure-category { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.fc-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); }
+.fc-name { font-size: var(--fs-14); color: var(--fail-text); }
+.fc-detail { font-size: var(--fs-13); }
+.failure-category .row { gap: var(--space-2); }
+.failure-category button { height: 26px; font-family: var(--font-mono); font-size: var(--fs-12); font-weight: var(--fw-regular); color: var(--accent-text); }
+.why-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.why-item { border: 1px solid rgb(255 92 108 / 0.35); background: var(--fail-tint); border-radius: var(--radius-control); padding: var(--space-3) var(--space-4); font-size: var(--fs-13); }
+.why-line { margin: var(--space-1) 0 0; }
+.why-reasoning { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-2) var(--space-3); margin-top: var(--space-1); font-size: var(--fs-12); }
+
+.graders { display: flex; flex-direction: column; gap: var(--space-3); }
+.graders .section-title { margin-bottom: 0; }
+.io { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.io .panel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+
+.timeline .section-title { margin: 0; padding: var(--space-4) var(--space-5) var(--space-3); }
+.timeline-empty { padding: 0 var(--space-5) var(--space-5); }
+.timeline-controls { gap: var(--space-2) var(--space-3); padding: 0 var(--space-5) var(--space-3); }
+.divider { width: 1px; height: 20px; background: var(--border); }
+.kind-filter { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); font-family: var(--font-mono); cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.kind-filter:hover { border-color: var(--border-strong); }
+.kind-filter.off { color: var(--text-muted); }
+.kind-filter input { width: 13px; height: 13px; }
+.pager { gap: var(--space-3); padding: 0 var(--space-5) var(--space-3); }
+.events { margin: 0; padding: 0; border-top: 1px solid var(--border); }
+
+.memory { display: flex; flex-direction: column; gap: var(--space-3); }
+.mem-file .side-by-side { margin-top: var(--space-2); }
+.mem-lists { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+.mem-lists ul { margin: var(--space-1) 0 0; padding-left: 18px; font-size: var(--fs-13); }
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.block { margin-top: var(--space-1); }
+
+@media (max-width: 1180px) {
+  .io { grid-template-columns: minmax(0, 1fr); }
+  .trial-kv { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
+}
 </style>

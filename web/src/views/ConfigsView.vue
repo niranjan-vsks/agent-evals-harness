@@ -4,6 +4,9 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { api, ApiError } from '../api/client';
 import type { Capabilities, Config, CreateConfigBody, Harness, MemoryMode, PlatformTool } from '../api/types';
+import DataTable from '../components/DataTable.vue';
+import EmptyState from '../components/EmptyState.vue';
+import Skeleton from '../components/Skeleton.vue';
 import { useAppStore } from '../stores/app';
 import { hashPrefix, when } from '../lib/format';
 
@@ -196,8 +199,13 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div>
-    <h1>Configs</h1>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>Configs</h1>
+        <p class="page-sub">A config is 1 harness, 1 model and its settings. Configs are immutable: the same content always has the same hash.</p>
+      </div>
+    </header>
 
     <div v-for="(err, i) in listError ? [listError, ...loadErrors] : loadErrors" :key="i" class="error" role="alert">
       <div>{{ err.message }}</div>
@@ -206,117 +214,135 @@ async function submit(): Promise<void> {
       </ul>
     </div>
 
-    <h2>Existing configs</h2>
-    <p v-if="loadingList" class="muted">loading</p>
-    <p v-else-if="store.configs === null" class="muted">the config list was not loaded</p>
-    <p v-else-if="!configs.length" class="muted">no configs yet</p>
-    <table v-else class="configs-table">
-      <thead>
-        <tr>
-          <th>name</th>
-          <th>harness@version</th>
-          <th>model</th>
-          <th>memory</th>
-          <th>tools / skills</th>
-          <th>hash</th>
-          <th>created</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="c in configs" :key="c.id" class="config-row">
-          <td class="cfg-name">{{ c.name }}</td>
-          <td class="mono cfg-harness">{{ c.harness_id }}@{{ c.harness_version }}</td>
-          <td class="mono cfg-model">{{ c.model_slug }}</td>
-          <td class="cfg-memory">{{ c.settings.memory.mode }}<span v-if="c.settings.memory.fixture" class="muted"> ({{ c.settings.memory.fixture }})</span></td>
-          <td class="small cfg-tools">
-            <div>tools: {{ toolsCell(c) }}</div>
-            <div>{{ skillsCell(c) }}</div>
-          </td>
-          <td class="mono cfg-hash" :title="c.config_hash">{{ hashPrefix(c.config_hash) }}</td>
-          <td class="small">{{ when(c.created_at) }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <section>
+      <div class="section-title">
+        <h2>Existing configs</h2>
+        <span v-if="store.configs !== null && configs.length" class="small muted">{{ configs.length }} configs, newest first</span>
+      </div>
+      <div v-if="loadingList" class="panel panel-flush">
+        <Skeleton :rows="4" />
+        <p class="muted small loading-text">loading</p>
+      </div>
+      <p v-else-if="store.configs === null" class="muted">the config list was not loaded</p>
+      <EmptyState v-else-if="!configs.length" title="There are no configs yet.">Create the first one with the form below; an experiment needs 2.</EmptyState>
+      <DataTable v-else class="configs-table">
+        <thead>
+          <tr>
+            <th>name</th>
+            <th>harness@version</th>
+            <th>model</th>
+            <th>memory</th>
+            <th>tools / skills</th>
+            <th>hash</th>
+            <th>created</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="c in configs" :key="c.id" class="config-row">
+            <td class="cfg-name">{{ c.name }}</td>
+            <td class="mono cfg-harness">{{ c.harness_id }}@{{ c.harness_version }}</td>
+            <td class="mono cfg-model">{{ c.model_slug }}</td>
+            <td class="cfg-memory">{{ c.settings.memory.mode }}<span v-if="c.settings.memory.fixture" class="muted"> ({{ c.settings.memory.fixture }})</span></td>
+            <td class="small cfg-tools">
+              <div>tools: {{ toolsCell(c) }}</div>
+              <div class="muted">{{ skillsCell(c) }}</div>
+            </td>
+            <td class="mono cfg-hash" :title="c.config_hash">{{ hashPrefix(c.config_hash) }}</td>
+            <td class="mono small muted">{{ when(c.created_at) }}</td>
+          </tr>
+        </tbody>
+      </DataTable>
+    </section>
 
-    <h2>Create a config</h2>
-    <form class="form-grid" novalidate @submit.prevent="submit">
-      <label for="cfg-name">name</label>
-      <input id="cfg-name" v-model="name" type="text" autocomplete="off" />
+    <section class="panel">
+      <div class="section-title">
+        <h2>Create a config</h2>
+        <span class="small muted">The API asks the harness adapter; settings it cannot honor exactly are refused with reasons.</span>
+      </div>
+      <form class="form-grid" novalidate @submit.prevent="submit">
+        <label for="cfg-name">name</label>
+        <input id="cfg-name" v-model="name" type="text" autocomplete="off" />
 
-      <label for="cfg-harness">harness</label>
-      <div>
-        <select id="cfg-harness" v-model="harnessId">
-          <option v-for="h in harnessChoices" :key="h.id" :value="h.id">{{ h.id }}@{{ h.version }}</option>
+        <label for="cfg-harness">harness</label>
+        <div>
+          <select id="cfg-harness" v-model="harnessId">
+            <option v-for="h in harnessChoices" :key="h.id" :value="h.id">{{ h.id }}@{{ h.version }}</option>
+          </select>
+          <div v-if="selectedHarness" class="small muted harness-hint">{{ capabilityHint(selectedHarness.capabilities) }}</div>
+        </div>
+
+        <label for="cfg-model">model</label>
+        <select id="cfg-model" v-model="modelId">
+          <option v-for="m in store.models ?? []" :key="m.id" :value="m.id">{{ m.display_name }} ({{ m.slug }})</option>
         </select>
-        <div v-if="selectedHarness" class="small muted harness-hint">{{ capabilityHint(selectedHarness.capabilities) }}</div>
-      </div>
 
-      <label for="cfg-model">model</label>
-      <select id="cfg-model" v-model="modelId">
-        <option v-for="m in store.models ?? []" :key="m.id" :value="m.id">{{ m.display_name }} ({{ m.slug }})</option>
-      </select>
+        <label>tools</label>
+        <div class="row checks">
+          <label v-for="t in ALL_TOOLS" :key="t" class="check-pill"><input v-model="tools" type="checkbox" :value="t" :data-tool="t" /> {{ t }}</label>
+        </div>
 
-      <label>tools</label>
-      <div class="row">
-        <label v-for="t in ALL_TOOLS" :key="t"><input v-model="tools" type="checkbox" :value="t" :data-tool="t" /> {{ t }}</label>
-      </div>
-
-      <label for="cfg-memory-mode">memory mode</label>
-      <select id="cfg-memory-mode" v-model="memoryMode">
-        <option value="off">off</option>
-        <option value="seeded">seeded</option>
-      </select>
-
-      <label for="cfg-memory-fixture">memory fixture</label>
-      <div>
-        <select id="cfg-memory-fixture" v-model="memoryFixture" :disabled="memoryMode !== 'seeded'">
-          <option value="">(none)</option>
-          <option v-for="f in fixtureOptions" :key="f" :value="f">{{ f }}</option>
+        <label for="cfg-memory-mode">memory mode</label>
+        <select id="cfg-memory-mode" v-model="memoryMode">
+          <option value="off">off</option>
+          <option value="seeded">seeded</option>
         </select>
-        <span class="small muted"> used only when memory mode is seeded</span>
+
+        <label for="cfg-memory-fixture">memory fixture</label>
+        <div>
+          <select id="cfg-memory-fixture" v-model="memoryFixture" :disabled="memoryMode !== 'seeded'">
+            <option value="">(none)</option>
+            <option v-for="f in fixtureOptions" :key="f" :value="f">{{ f }}</option>
+          </select>
+          <div class="hint">used only when memory mode is seeded</div>
+        </div>
+
+        <label for="cfg-skills">skills</label>
+        <div class="row checks">
+          <label class="check-pill"><input id="cfg-skills" v-model="skillsEnabled" type="checkbox" /> enabled</label>
+          <label for="cfg-preload" class="small muted">preload</label>
+          <input id="cfg-preload" v-model="preload" type="text" placeholder="comma separated skill names" />
+        </div>
+
+        <label for="cfg-temperature">temperature</label>
+        <input id="cfg-temperature" v-model.number="temperature" type="number" step="any" class="num-input" />
+
+        <label for="cfg-max-steps">max_steps</label>
+        <input id="cfg-max-steps" v-model.number="maxSteps" type="number" step="1" class="num-input" />
+
+        <label for="cfg-max-output-tokens">max_output_tokens</label>
+        <input id="cfg-max-output-tokens" v-model.number="maxOutputTokens" type="number" step="1" class="num-input" />
+
+        <label for="cfg-timeout">timeout_seconds</label>
+        <input id="cfg-timeout" v-model.number="timeoutSeconds" type="number" step="1" class="num-input" />
+
+        <label for="cfg-harness-options">harness_options</label>
+        <div>
+          <textarea id="cfg-harness-options" v-model="harnessOptionsText" class="mono" spellcheck="false"></textarea>
+          <div class="hint">A JSON object. providers_ignored goes here, e.g. <span class="mono">{{ HARNESS_OPTIONS_EXAMPLE }}</span></div>
+        </div>
+
+        <span></span>
+        <div class="row">
+          <button type="submit" class="primary" :disabled="submitting">{{ submitting ? 'creating' : 'Create config' }}</button>
+        </div>
+      </form>
+
+      <div v-if="submitError" class="error submit-error" role="alert">
+        <div class="submit-error-message">{{ submitError.message }}</div>
+        <ul v-if="submitError.reasons.length">
+          <li v-for="(r, i) in submitError.reasons" :key="i">{{ r }}</li>
+        </ul>
       </div>
-
-      <label for="cfg-skills">skills</label>
-      <div class="row">
-        <label><input id="cfg-skills" v-model="skillsEnabled" type="checkbox" /> enabled</label>
-        <label for="cfg-preload">preload</label>
-        <input id="cfg-preload" v-model="preload" type="text" placeholder="comma separated skill names" />
-      </div>
-
-      <label for="cfg-temperature">temperature</label>
-      <input id="cfg-temperature" v-model.number="temperature" type="number" step="any" />
-
-      <label for="cfg-max-steps">max_steps</label>
-      <input id="cfg-max-steps" v-model.number="maxSteps" type="number" step="1" />
-
-      <label for="cfg-max-output-tokens">max_output_tokens</label>
-      <input id="cfg-max-output-tokens" v-model.number="maxOutputTokens" type="number" step="1" />
-
-      <label for="cfg-timeout">timeout_seconds</label>
-      <input id="cfg-timeout" v-model.number="timeoutSeconds" type="number" step="1" />
-
-      <label for="cfg-harness-options">harness_options</label>
-      <div>
-        <textarea id="cfg-harness-options" v-model="harnessOptionsText" class="mono" spellcheck="false"></textarea>
-        <div class="small muted">A JSON object. providers_ignored goes here, e.g. {{ HARNESS_OPTIONS_EXAMPLE }}</div>
-      </div>
-
-      <span></span>
-      <div class="row">
-        <button type="submit" class="primary" :disabled="submitting">{{ submitting ? 'creating' : 'Create config' }}</button>
-      </div>
-    </form>
-
-    <div v-if="submitError" class="error submit-error" role="alert">
-      <div class="submit-error-message">{{ submitError.message }}</div>
-      <ul v-if="submitError.reasons.length">
-        <li v-for="(r, i) in submitError.reasons" :key="i">{{ r }}</li>
-      </ul>
-    </div>
-    <div v-if="notice" class="notice submit-notice" role="status">{{ notice }}</div>
+      <div v-if="notice" class="notice submit-notice" role="status">{{ notice }}</div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.harness-hint { margin-top: 2px; }
+.harness-hint { margin-top: var(--space-1); max-width: 70ch; }
+.checks { gap: var(--space-3); }
+.check-pill { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-13); cursor: pointer; }
+.num-input { width: 120px; }
+.loading-text { padding: 0 var(--space-3) var(--space-3); }
+.submit-error, .submit-notice { margin-top: var(--space-4); max-width: 820px; }
 </style>
