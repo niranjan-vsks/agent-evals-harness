@@ -144,6 +144,11 @@ def _child_env(cfg: RunnerConfig, parsed: ParsedSpec, trial_dir: Path) -> dict[s
     return env
 
 
+def _spec_path(cfg: RunnerConfig, parsed: ParsedSpec) -> Path:
+    """Where the child's spec file lives: outside every trial dir (R-10)."""
+    return cfg.work_dir / "specs" / f"{parsed.trial_id}-{parsed.attempt}.json"
+
+
 def _copy_fixture(src: Path, dst: Path) -> None:
     """R-5: copy, never symlink. Content only, so permissions of a read-only mount are not
     inherited. The _hidden/ subtree (grader-only files) is not copied (R-7)."""
@@ -331,6 +336,7 @@ def _run_admitted(spec: dict[str, Any], cfg: RunnerConfig) -> dict[str, Any]:
     try:
         return _scrub_deep(_run_in_dir(spec, parsed, adapter, cfg, trial_dir, fixture_abs, secrets), secrets)
     finally:
+        _spec_path(cfg, parsed).unlink(missing_ok=True)  # normally the child already deleted it; a child that never started did not
         if not cfg.keep_trial_dirs:  # R-8
             _remove_tree(trial_dir)
             try:
@@ -346,7 +352,10 @@ def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir:
         _copy_fixture(fixture_abs, trial_dir / "workspace")  # R-5
 
     ctx = _build_context(parsed, trial_dir, fixture_abs)
-    spec_path = trial_dir / "spec.json"
+    # The spec holds the graders (expected answers, hidden-test names, regexes), so it never lives under trial_dir, where the
+    # agent's shell starts: it is written next to the trial dirs and the child deletes it as soon as it has read it (R-10).
+    spec_path = _spec_path(cfg, parsed)
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
     spec_path.write_text(
         json.dumps({"spec": spec, "paths": {"trial_dir": ctx.trial_dir, "workspace_dir": ctx.workspace_dir, "events_path": ctx.events_path, "fixture_dir": ctx.task.fixture_dir}}),
         encoding="utf-8",

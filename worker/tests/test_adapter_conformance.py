@@ -19,7 +19,7 @@ import pytest
 from worker.adapters import REGISTRY
 from worker.adapters.base import MemorySettings, Settings, SkillSettings
 from worker.spec import build_context, parse_trial_spec
-from worker.tests.conftest import SENTINEL_KEY, make_spec
+from worker.tests.conftest import SENTINEL_KEY, make_spec, write_task
 from worker.tests.harness_world import SEED, SEEDED
 
 ADAPTERS_DIR = Path(__file__).resolve().parent.parent / "adapters"
@@ -256,8 +256,21 @@ def test_h8_collect_memory_reads_only_from_disk_in_a_fresh_process(adapter_id, w
         "print(json.dumps(load_registry()[payload['spec']['harness']].collect_memory(ctx).files))\n"
     )
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parent.parent.parent)}
+    # The runner's spec file is deleted by the child (R-10), so the fresh process gets a copy rebuilt from the same inputs.
+    fixture = world.tasks / run.spec["task"]["fixture_dir"] if run.spec["task"].get("fixture_dir") else None
+    payload = {
+        "spec": run.spec,
+        "paths": {
+            "trial_dir": str(run.trial_dir),
+            "workspace_dir": str(run.trial_dir / "workspace"),
+            "events_path": str(run.trial_dir / "out" / "events.jsonl"),
+            "fixture_dir": str(fixture) if fixture else None,
+        },
+    }
+    spec_copy = run.trial_dir.parent / "spec-copy-for-h8.json"
+    spec_copy.write_text(json.dumps(payload), encoding="utf-8")
     out = subprocess.run(
-        [sys.executable, "-c", code, str(run.trial_dir / "spec.json")], capture_output=True, text=True, env=env, timeout=60
+        [sys.executable, "-c", code, str(spec_copy)], capture_output=True, text=True, env=env, timeout=60
     )
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout) == SEED
@@ -390,3 +403,34 @@ def test_a_failure_with_no_http_status_is_a_scored_agent_error(adapter_id, world
     assert r["status"] == "done", r.get("error_message")
     assert r["outcome"]["exit_reason"] == "agent_error" and r["passed"] is False
     assert _last_error(run).get("http_status") is None
+
+
+# ------------------------------------------------------------------ R-10: the graders are not next to the agent
+
+GRADER_SENTINEL = "GRADER-SENTINEL-4c1f9e7a"
+RUNNER_DIRS = {"workspace", "out", "home", "tmp"}
+HARNESS_HOMES = {"hermes_home", "memory"}  # created by prepare(): each adapter's own home
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the probe is a POSIX shell command line; the worker runs on Linux")
+def test_r10_an_agent_that_goes_looking_for_the_graders_finds_none(adapter_id, world):
+    """A stub model runs `cat ../spec.json` and `find .. -name "*.json"` from the workspace. The task's expected
+    answer is a sentinel that appears only in the grader. The probe's output must hold none of it, must not even name
+    spec.json, and the listing of the trial dir during the run holds only the runner's and the harness's directories."""
+    write_task(world.tasks, "det-leak", None, [{"type": "exact_match", "expected": GRADER_SENTINEL}])
+    run = world.run(adapter_id, "read_graders", timeout=120, task_id="det-leak")
+    assert run.result["status"] == "done", run.result.get("error_message")
+    calls = [e for e in run.kinds("tool_call") if "spec.json" in json.dumps(e.get("args", {}))]
+    assert calls, "the stub's probe was never run, so this test proves nothing"
+    seen = "\n".join(str(e.get("output", "")) for e in run.kinds("tool_result"))
+    assert "CONTROL-SHELL-RAN" in seen, "the shell did not run"
+    assert GRADER_SENTINEL not in seen
+    assert "spec.json" not in seen.replace("../spec.json", "")  # the error text of cat may repeat the path it was given
+    assert '"graders"' not in seen and '"expected"' not in seen
+    listing = re.search(r"LS-BEGIN (.*?) LS-END", seen, re.S)
+    assert listing, f"no directory listing in {seen[:400]!r}"
+    names = set(listing.group(1).split())
+    assert names <= RUNNER_DIRS | HARNESS_HOMES, f"unexpected entries next to the workspace: {sorted(names - RUNNER_DIRS - HARNESS_HOMES)}"
+    # and nothing named spec.json was left behind anywhere under the trial dir or in the specs directory
+    assert not list(run.trial_dir.rglob("spec.json"))
+    assert not list((world.cfg.work_dir / "specs").glob("*"))

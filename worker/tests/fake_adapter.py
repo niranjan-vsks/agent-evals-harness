@@ -69,6 +69,9 @@ class FakeAdapter:
                     final += f"|link={p.is_symlink()}"
                     p.write_text("MUTATED BY AGENT", encoding="utf-8")
             (ws / "answer.txt").write_text("42\n", encoding="utf-8")
+        elif mode == "list_trial_dir":  # R-10: what sits next to the workspace while the agent runs
+            trial = Path(ctx.trial_dir)
+            final = "FINAL: " + ",".join(sorted(p.name for p in trial.iterdir())) + "|" + ",".join(sorted(p.name for p in trial.rglob("*.json")))
         elif mode == "list_workspace":
             final = "FINAL: " + ",".join(sorted(p.relative_to(ws).as_posix() for p in ws.rglob("*")))
         elif mode.startswith("provider_") and mode[9:].isdigit():

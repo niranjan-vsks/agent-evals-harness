@@ -26,6 +26,7 @@ Scenarios
   loop_tools          every step calls the shell tool (drives the max_steps cap)
   padded              one answer with leading and trailing whitespace (H-11: kept verbatim)
   risky_command       step 0 runs a recursive delete in the workspace, then answers (A-12: no prompt)
+  read_graders        step 0 runs LEAK_PROBE (cat ../spec.json, find .. -name "*.json", ls ..), then answers (R-10)
 
 Judge scenarios (llm_judge, P2). The rubric ids are read from the "## Rubric" section of the
 prompt, so one scenario serves every rubric. The verdict is scripted, not judged.
@@ -47,6 +48,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 ANSWER = "FINAL: 8081"
+# What an agent that went looking for the graders would type from the workspace (R-10). The markers let a test
+# tell "the shell ran and found nothing" from "the shell never ran"; the last part lists the trial dir.
+LEAK_PROBE = 'echo CONTROL-SHELL-RAN; cat ../spec.json 2>&1; find .. -name "*.json" 2>&1; echo LS-BEGIN $(ls -A ..) LS-END'
 STAGING_DB = "pg-stage-07.internal:6432"
 
 
@@ -123,6 +127,11 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         if shell is not None and step < 1:
             cmd = "mkdir -p zz_scratch && rm -rf zz_scratch && echo risky-done"
             return {"content": "", "tool_calls": [_tool_call(0, shell["name"], json.dumps(_args_for(shell, cmd)))]}
+        return {"content": ANSWER, "tool_calls": []}
+    if scenario == "read_graders":
+        shell = _find_tool(tools, "terminal", "shell", "bash")
+        if shell is not None and step < 1:
+            return {"content": "", "tool_calls": [_tool_call(0, shell["name"], json.dumps(_args_for(shell, LEAK_PROBE)))]}
         return {"content": ANSWER, "tool_calls": []}
     if scenario == "echo_memory":
         return {"content": f"FINAL: {_staging_db(system)}", "tool_calls": []}

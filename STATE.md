@@ -144,6 +144,39 @@ P6 is done and deployed on the P5 database. Run `failures:backfill` again after 
 
 ---
 
+## P5 follow-up: Isolation fix (the trial's spec.json, which holds the graders, is no longer next to the agent)
+
+Cause: P5 Found 2. The runner wrote `spec.json` (the whole TrialSpec: every grader, the expected answers, the `trace_check` regexes) into `trial_dir`, one level above the workspace where the agent's shell starts, and kept it for the whole run. 7 of 66 `claude-haiku-5.5` trials of the secondary experiment opened it. Only `worker/` was touched.
+
+### Shipped
+
+- `worker/runner.py`: `_spec_path(cfg, parsed)` puts the child's spec at `<work_dir>/specs/<trial_id>-<attempt>.json`, outside every trial dir. `run_trial`'s `finally` unlinks it (a child that never started leaves it otherwise). New invariant, named R-10 in the code comments: the spec is never under `trial_dir`.
+- `worker/run_one.py`: `consume_spec()` reads the spec and deletes the file as the first thing the child does, before `adapter.prepare()`; if the file cannot be deleted the child raises (fails closed, `worker_crash`) rather than run the agent. `assert_trial_dir_holds_no_extras()` runs before `prepare()` and raises if `trial_dir` holds anything but `workspace`, `out`, `home` and `tmp`. What may exist during `run()` is therefore those four (all created by the runner; `home` and `tmp` are the child's `HOME` and `TMPDIR`, empty) plus the harness's own home that `prepare()` adds (`hermes_home` for Hermes, `memory` for the minimal loop). This is how I read "nothing except workspace/, out/ and the harness home": `home` and `tmp` were left where they are, because moving them changes the H-2 isolation setup, which the task said not to touch.
+- Tests: the stub model gets a scenario `read_graders` whose one shell call is `LEAK_PROBE` (`cat ../spec.json`, `find .. -name "*.json"`, and a listing of `..`); `test_adapter_conformance.py::test_r10_an_agent_that_goes_looking_for_the_graders_finds_none`, parametrized over both adapters, runs it against a task whose expected answer is a sentinel and asserts the shell ran (a control string), the sentinel is not in any tool result, `spec.json` and `"graders"` are not either, the listing of `..` is a subset of the runner's and the harness's directories, and no `spec.json` remains under the trial dir or in `specs/`. `test_spec_isolation.py` (6 tests): the fake adapter lists `trial_dir` during `run()` (new mode `list_trial_dir`), a kept trial dir never holds the spec, the spec is gone after a child crash, `consume_spec` reads then deletes, an undeletable spec is not run, a stray file stops the child. The H-8 test read `trial_dir/spec.json` in a fresh process; it now rebuilds the same payload from the run's spec and paths.
+
+### Verified
+
+| Check | Result |
+|---|---|
+| Worker suite, container (`docker build ./worker` as image `p5iso-worker`, `pytest -q -rf`, tasks mounted read-only) | exit 0, **613 passed, 28 skipped** in 667.57 s, 0 failed. Before: 606 passed, 27 skipped (P3, P5 gates). The difference is 7 new passing tests (2 conformance, 5 isolation) and 1 new skip (the undeletable-spec test cannot run as root). |
+| Mutation 1 | `_spec_path` returned `trial_dir/spec.json` again and `consume_spec` stopped deleting. `-k r10`: **4 failed, 3 passed**, 1 skipped: both conformance cases (hermes, minimal_loop), `test_r10_the_spec_is_not_under_the_trial_dir_during_the_run` and `test_r10_consume_spec_reads_then_deletes`. The child guard turned the leak into a `worker_crash` here, so this run shows the guard works. |
+| Mutation 2 | The same plus `assert_trial_dir_holds_no_extras` removed, so the pre-fix behaviour is back. Conformance test, both adapters: **failed**, with the sentinel in the probe's output, e.g. `...{"expected": "GRADER-SENTINEL-4c1f9e7a"}]}, "memory_seed": null}, "paths": {...}}../spec.json` and `LS-BEGIN home out spec.json tmp workspace LS-END`. Both files restored from copies, sha256 identical before and after (`runner.py` `df501068...`, `run_one.py` `1dffa48e...`). |
+| Hermes and the minimal loop | Both adapters pass the new conformance test, so Hermes's terminal tool and the minimal loop's shell see no `spec.json` from the workspace. |
+
+### Found but not fixed
+
+1. **The graders are still readable elsewhere (DESIGN 13.6).** `/tasks` is mounted read-only in the worker and holds every task JSON (the `exact_match` answers) and the `_hidden/` files; an agent that runs `find / -name "*.json"` or `cat /tasks/mem-01-staging-db.json` still reaches them. This fix closes the one path the agent had a reason to try (`..` from the workspace); real confinement (a separate uid or a mount namespace) is still open. The run's own data shows model-a looked in `..` and in `hermes_home`, not in `/tasks`.
+2. **The running `p5run` worker is not updated.** Its image was built from `cb7a46d` and still has the old behaviour; the committed secondary experiment (`01M5STXWYMRDGQFJ47DNK5Y83S`) ran under it, so its `claude-haiku-5.5` results on the tasks whose graders are in `spec.json` stay unreliable (P5 Found 2). The primary experiment is unaffected (0 reads of `spec.json` in its 132 trials). To pick up the fix there: `docker compose -p p5run ... up -d --build worker` from an export that contains this commit, when no experiment is running.
+3. **Documents not updated** (outside the files I was allowed to touch): ADAPTERS.md section 6 has no row R-10, and DESIGN.md 13.6 and 13.13 still say the graders are readable at `../spec.json`. They should say it is closed and that `/tasks` is the remaining gap.
+4. **`home` and `tmp` remain under the trial dir** (see Shipped). They are empty at the start and hold nothing of ours.
+5. Host (Windows) pytest was not run; the new conformance case is skipped on Windows by design (a POSIX shell line).
+
+### Next action
+
+Rebuild the worker in `p5run` from a tree that contains this commit when convenient, and if the secondary experiment is to be quoted for model-a, re-run it afterwards (about 32 minutes, 0.06 USD). Update ADAPTERS.md (R-10) and DESIGN.md 13.6 and 13.13.
+
+---
+
 ## P5: The real experiment, judge validation, README, results, video script (STOPPED AT THE LABELS)
 
 Everything that does not need `labels.jsonl` is done. The owner writes the 30 labels by hand; then `judge:kappa`, a re-export and the PENDING KAPPA parts of DESIGN 10.4 and 10.5 remain (see Next action). **Blind labelling:** the 30 items are all the judge-graded trials, so do not read `experiments/results/*`, DESIGN 10.4 or 10.5 beyond what they say is withheld, the Compare or trial pages for the 5 judged tasks (`jdg-01` to `jdg-04`, `mem-06`), `analyze.mjs --reveal-judged`, or the P6 section's Found 1 (it counts judged failures per task) until `labels.jsonl` is committed.
