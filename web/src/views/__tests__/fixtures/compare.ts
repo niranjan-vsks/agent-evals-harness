@@ -5,6 +5,8 @@ import type {
   CategoryBlock,
   ComparePayload,
   Config,
+  FailureCounts,
+  FailureHistogram,
   ConfigSettings,
   ExperimentDetail,
   MetricComparison,
@@ -39,7 +41,30 @@ export const perTask = (over: Partial<PerTaskRow> = {}): PerTaskRow => ({
   verdict: 'noise',
   direction_only: true,
   judge_excluded: false,
+  failure_category_a: null,
+  failure_category_b: null,
   ...over,
+});
+
+/** A zero-filled count map with the given categories set. */
+export const counts = (set: Partial<FailureCounts> = {}): FailureCounts => ({
+  step_exhaustion: 0,
+  timeout: 0,
+  hallucinated_tool_args: 0,
+  wrong_tool: 0,
+  tool_error_unrecovered: 0,
+  no_final_answer: 0,
+  gave_up_early: 0,
+  grader_disagreement: 0,
+  memory_ignored: 0,
+  wrong_answer: 0,
+  ...set,
+});
+
+export const failures = (a: Partial<FailureCounts> = {}, b: Partial<FailureCounts> = {}, uncategorized = { a: 0, b: 0 }): FailureHistogram => ({
+  a: counts(a),
+  b: counts(b),
+  uncategorized,
 });
 
 export const metric = (
@@ -83,6 +108,7 @@ export function makeCompare(over: Partial<ComparePayload> = {}): ComparePayload 
     mcnemar: null,
     mcnemar_omitted: 'McNemar needs 1 binary outcome per (task, config) pair; this experiment has 2 trials per task',
     per_task: [perTask({ task_id: 'task-one' }), perTask({ task_id: 'task-two', category: 'honesty' })],
+    failures: failures(),
     cost: metric([0.0005, 0.0002, 0.001], [0.0002, 0.0001, 0.0003], [-0.00004, 0.0009]),
     latency_ms: metric([25000, 16000, 40000], [16000, 14000, 19000], [800, 25000]),
     tokens: {
@@ -126,6 +152,9 @@ export const realP3Payload: ComparePayload = (() => {
     verdict,
     direction_only: true,
     judge_excluded: false,
+    // The failures block did not exist in P3: these two fields are synthetic, consistent with the 0 of 2 of mem-01 under memory off.
+    failure_category_a: rate_a < 1 ? 'wrong_answer' : null,
+    failure_category_b: rate_b < 1 ? 'wrong_answer' : null,
   });
   return {
     experiment_id: '01M5Q85G672WKH4QMQ4XXA53HN',
@@ -176,6 +205,7 @@ export const realP3Payload: ComparePayload = (() => {
       input: metric([31278.833333333332, 8599, 74445.5], [9024.333333333334, 5327, 10879], [-2268, 69118.5]),
       output: metric([375.1666666666667, 77, 952.5], [101, 78, 144.5], [-3.5, 808]),
     },
+    failures: failures({ wrong_answer: 2 }),
     stats_version: '1.0.0',
     comparison_run_id: '01M5Q8A3MGSM0TWT0RH6WJQPEJ',
   };

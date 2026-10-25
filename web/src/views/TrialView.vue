@@ -2,12 +2,13 @@
 // The trial inspector (cards/P4.md section 5): a reader must be able to say why a trial failed from this page alone.
 // Nothing here decides pass or fail or computes a statistic: every verdict comes from the API's grader results, and
 // the "why it failed" lines only restate those results in words. Trace text is untrusted and is never rendered as HTML.
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ApiError, api } from '../api/client';
-import type { ExperimentDetail, FullTrace, GraderResult, PartialTrace, Task, Trace, TraceEvent as TraceEv, Trial } from '../api/types';
+import type { ExperimentDetail, FailureEvidence, FullTrace, GraderResult, PartialTrace, Task, Trace, TraceEvent as TraceEv, Trial } from '../api/types';
 import GraderDetail from '../components/GraderDetail.vue';
 import StatusChip from '../components/StatusChip.vue';
 import TraceEvent from '../components/TraceEvent.vue';
+import { FAILURE_RULE } from '../lib/failures';
 import { int, seconds, shortId, usd, when } from '../lib/format';
 import { useAppStore } from '../stores/app';
 
@@ -53,6 +54,7 @@ function resetState(): void {
   expanded.clear();
   disabledKinds.clear();
   offset.value = 0;
+  focusedSeq.value = null;
 }
 
 async function load(id: string): Promise<void> {
@@ -227,6 +229,8 @@ const kindCounts = computed(() => {
 const disabledKinds = reactive(new Set<string>());
 const expanded = reactive(new Set<number>());
 const offset = ref(0);
+const focusedSeq = ref<number | null>(null);
+const root = ref<HTMLElement | null>(null);
 
 const filtered = computed(() => events.value.filter((e) => !disabledKinds.has(e.kind)));
 const windowed = computed(() => filtered.value.length > WINDOW_THRESHOLD);
@@ -279,6 +283,32 @@ function next(): void {
   if (windowStart.value + WINDOW_SIZE < filtered.value.length) offset.value = windowStart.value + WINDOW_SIZE;
 }
 
+// ---------------------------------------------------------------- failure category (the API's rules; this only displays them and follows their links)
+
+const evidence = computed<FailureEvidence | null>(() => trial.value?.failure_evidence ?? null);
+const eventExists = (seq: number): boolean => events.value.some((e) => e.seq === seq);
+
+/**
+ * Brings the event the evidence names into view: re-enables its kind if a filter hid it, pages the window onto it, expands it, scrolls
+ * to it and outlines it. The row is found by its seq, never by its position, so a filter or a window cannot make the link land elsewhere.
+ */
+async function goToEvent(seq: number): Promise<void> {
+  const ev = events.value.find((e) => e.seq === seq);
+  if (!ev) return;
+  disabledKinds.delete(ev.kind);
+  const at = filtered.value.findIndex((e) => e.seq === seq);
+  if (windowed.value && at >= 0) offset.value = Math.floor(at / WINDOW_SIZE) * WINDOW_SIZE;
+  expanded.add(seq);
+  focusedSeq.value = seq;
+  await nextTick();
+  root.value?.querySelector(`#event-${seq}`)?.scrollIntoView?.({ block: 'center' });
+}
+
+async function goToGrader(index: number): Promise<void> {
+  await nextTick();
+  root.value?.querySelector(`[data-grader-index="${index}"]`)?.scrollIntoView?.({ block: 'center' });
+}
+
 // ---------------------------------------------------------------- memory
 
 const memoryFiles = computed(() => {
@@ -298,7 +328,7 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
 </script>
 
 <template>
-  <div class="trial-view">
+  <div ref="root" class="trial-view">
     <p v-if="loading" class="muted">Loading trial...</p>
 
     <div v-else-if="trialError" class="error" role="alert" data-test="trial-error">
@@ -369,6 +399,26 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
       <!-- 2. WHY IT FAILED -->
       <section v-if="trial.passed === false" data-test="why">
         <h2>Why it failed</h2>
+        <div v-if="trial.failure_category" class="failure-category" data-test="failure-category">
+          <div>
+            Failure category <strong class="mono" data-test="failure-category-name">{{ trial.failure_category }}</strong>
+            <span class="muted small" data-test="failure-rule">rule {{ evidence?.rule ?? '?' }}: {{ FAILURE_RULE[trial.failure_category] }}</span>
+          </div>
+          <div v-if="evidence" data-test="failure-detail">{{ evidence.detail }}</div>
+          <div v-if="evidence && (evidence.event_seq !== undefined || evidence.related_event_seq !== undefined || evidence.grader_index !== undefined)" class="row" data-test="failure-evidence">
+            <span class="muted small">evidence</span>
+            <template v-if="evidence.event_seq !== undefined">
+              <button v-if="eventExists(evidence.event_seq)" type="button" data-test="evidence-event" @click="goToEvent(evidence.event_seq)">event #{{ evidence.event_seq }}</button>
+              <span v-else class="muted" data-test="evidence-event-missing">event #{{ evidence.event_seq }} (not in the loaded trace)</span>
+            </template>
+            <template v-if="evidence.related_event_seq !== undefined">
+              <button v-if="eventExists(evidence.related_event_seq)" type="button" data-test="evidence-related-event" @click="goToEvent(evidence.related_event_seq)">event #{{ evidence.related_event_seq }}</button>
+              <span v-else class="muted">event #{{ evidence.related_event_seq }} (not in the loaded trace)</span>
+            </template>
+            <button v-if="evidence.grader_index !== undefined" type="button" data-test="evidence-grader" @click="goToGrader(evidence.grader_index)">grader #{{ evidence.grader_index }}</button>
+          </div>
+        </div>
+        <p v-else class="muted small" data-test="failure-category-none">No failure category is stored for this trial yet (run npm run failures:backfill in the api container).</p>
         <p v-if="whyNoGrader" data-test="why-no-grader">{{ whyNoGrader }}</p>
         <p v-else-if="!whyItems.length" class="muted">No grader result is marked failed in the recorded results.</p>
         <ul class="why-list">
@@ -438,7 +488,7 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
           </div>
           <p v-else class="small muted" data-test="shown-count">{{ filtered.length }} of {{ events.length }} events shown</p>
           <ol class="events">
-            <TraceEvent v-for="e in visible" :key="e.seq" :event="e" :expanded="expanded.has(e.seq)" :paired="pairedWith(e)" @toggle="toggle" />
+            <TraceEvent v-for="e in visible" :key="e.seq" :event="e" :expanded="expanded.has(e.seq)" :paired="pairedWith(e)" :focused="focusedSeq === e.seq" @toggle="toggle" />
           </ol>
         </template>
       </section>
@@ -495,6 +545,8 @@ watch(() => props.id, (id) => void load(id), { immediate: true });
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
 .block { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; max-height: 480px; overflow: auto; }
+.failure-category { border: 1px solid var(--line); background: var(--bg-soft); border-radius: 4px; padding: 6px 10px; margin: 6px 0; }
+.failure-category .row { gap: 8px; margin-top: 4px; }
 .why-list { list-style: none; padding: 0; margin: 0; }
 .why-item { border: 1px solid var(--bad); background: var(--bad-bg); border-radius: 4px; padding: 6px 10px; margin: 6px 0; }
 .why-line { margin: 2px 0; }

@@ -3,13 +3,14 @@ import { ulid } from '../common/ulid';
 import { PrismaService } from '../prisma/prisma.service';
 import { doneResult } from '../test-support/app';
 import { sqlState } from '../test-support/db';
-import { erroredResult, ingest, IngestedTrial } from '../trials/ingest';
+import { erroredResult, FailureTask, ingest, IngestedTrial } from '../trials/ingest';
 import { ErrorClass } from '../worker-client/types';
 import { MAX_BACKPRESSURE_REQUEUES } from './retry-policy';
 import { isD8Violation, reconcileExperiments, refreshExperimentStatus, settleOrphan, settleTrial, SettleContext, withD8Retry } from './settle';
 
 const PRICE = { input_price_per_mtok: 1, output_price_per_mtok: 2 };
 const NOW = new Date('2030-01-01T00:00:00.000Z');
+const TASK: FailureTask = { taskCategory: 'neutral_deterministic', taskFixtureDir: null, memoryMode: 'off' };
 
 describe('settle (database)', () => {
   let prisma: PrismaService;
@@ -54,7 +55,8 @@ describe('settle (database)', () => {
     retry: true,
     ...over,
   });
-  const done = (over = {}): IngestedTrial => ingest(doneResult(miniSpec({ trial_id: `T${++taskN}` }), over), PRICE);
+  const done = (over = {}, exit: 'completed' | 'timeout' | 'max_steps' = 'completed'): IngestedTrial =>
+    ingest(doneResult(miniSpec({ trial_id: `T${++taskN}` }), over, exit), PRICE, TASK);
   const errored = (cls: ErrorClass, msg = 'm', partial = null as null | { seq: number; t_ms: number; kind: string }[]): IngestedTrial =>
     ingest(erroredResult(cls, msg, partial), PRICE);
   const trial = (id: string) => prisma.trial.findUniqueOrThrow({ where: { id }, include: { attempts: { orderBy: { attemptNo: 'asc' } } } });
@@ -90,6 +92,17 @@ describe('settle (database)', () => {
       const e = await prisma.experiment.findUniqueOrThrow({ where: { id: ex.id } });
       expect(e.status).toBe('completed');
       expect(e.finishedAt).toEqual(NOW);
+    });
+
+    it('a failed trial is stored with its category and evidence in the same update (the CHECK of 0003_failure_category)', async () => {
+      const ex = await claimedExperiment(2);
+      expect(await settleTrial(prisma, ctx(ex, {}, 0), done({}, 'max_steps'))).toEqual({ kind: 'done' });
+      expect(await settleTrial(prisma, ctx(ex, {}, 1), done())).toEqual({ kind: 'done' });
+      const failed = await trial(ex.trialIds[0]);
+      expect(failed).toMatchObject({ status: 'done', passed: false, failureCategory: 'step_exhaustion' });
+      expect(failed.failureEvidence).toMatchObject({ rule: 1, category: 'step_exhaustion' });
+      const passed = await trial(ex.trialIds[1]);
+      expect(passed).toMatchObject({ status: 'done', passed: true, failureCategory: null, failureEvidence: null });
     });
 
     it('a retryable error puts the trial back to pending, keeps error_class and message for the backoff, and stores the partial trace', async () => {
@@ -334,7 +347,7 @@ describe('settle (database)', () => {
       expect(await refreshExperimentStatus(prisma, ex.id, NOW)).toBe('running');
       await prisma.trial.update({ where: { id: ex.trialIds[0] }, data: { status: 'done', passed: true, exitReason: 'completed' } });
       expect(await refreshExperimentStatus(prisma, ex.id, NOW)).toBe('running');
-      await prisma.trial.update({ where: { id: ex.trialIds[1] }, data: { status: 'done', passed: false, exitReason: 'completed' } });
+      await prisma.trial.update({ where: { id: ex.trialIds[1] }, data: { status: 'done', passed: false, exitReason: 'completed', failureCategory: 'wrong_answer', failureEvidence: { rule: 10, category: 'wrong_answer', detail: 'fixture' } } });
       expect(await refreshExperimentStatus(prisma, ex.id, NOW)).toBe('completed');
       const e = await prisma.experiment.findUniqueOrThrow({ where: { id: ex.id } });
       expect(e).toMatchObject({ status: 'completed' });

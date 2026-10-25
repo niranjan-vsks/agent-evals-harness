@@ -1,3 +1,4 @@
+import { FAILURE_CATEGORIES, FailureCategory } from '../failures/rules';
 import { mulberry32, percentileBootstrap, quantileSorted } from './bootstrap';
 import { mcnemar, McNemarResult } from './mcnemar';
 import { signTest, SignTestResult } from './sign-test';
@@ -25,6 +26,8 @@ export interface CompareTrial {
   inputTokens: number | null;
   outputTokens: number | null;
   rateLimitEvents: number;
+  /** P6: set on a done trial that failed (api/src/failures). Absent or null counts as uncategorized. */
+  failureCategory?: FailureCategory | null;
 }
 
 export interface CompareTask {
@@ -104,6 +107,19 @@ export interface PerTaskRow {
   direction_only: true;
   /** The task is judged and the judge policy is `excluded`: the numbers are shown but kept out of every headline figure. */
   judge_excluded: boolean;
+  /** The most frequent failure category among A's failed trials of this task (ties go to the earlier rule), null when A has none. */
+  failure_category_a: FailureCategory | null;
+  failure_category_b: FailureCategory | null;
+}
+
+/** Failed trials per category, every category present (0 when none) in the order of the rules. */
+export type FailureCounts = Record<FailureCategory, number>;
+
+export interface FailureHistogram {
+  a: FailureCounts;
+  b: FailureCounts;
+  /** Failed done trials that carry no category yet (a database not yet backfilled): they are in neither a nor b. */
+  uncategorized: { a: number; b: number };
 }
 
 export interface MetricBlock {
@@ -148,6 +164,8 @@ export interface ComparePayload {
   mcnemar: McNemarResult | null;
   mcnemar_omitted: string | null;
   per_task: PerTaskRow[];
+  /** P6. Counts the failed done trials of the tasks that entered the headline, the same trials as n_scored. */
+  failures: FailureHistogram;
   cost: MetricComparison;
   latency_ms: MetricComparison;
   tokens: { input: MetricComparison; output: MetricComparison };
@@ -155,6 +173,18 @@ export interface ComparePayload {
 }
 
 const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+const emptyCounts = (): FailureCounts => Object.fromEntries(FAILURE_CATEGORIES.map((c) => [c, 0])) as FailureCounts;
+const isFailed = (t: CompareTrial) => t.status === 'done' && t.passed === false;
+
+/** The commonest category among the failed trials; a tie goes to the category that comes first in FAILURE_CATEGORIES (the card's rule order). */
+function modeCategory(ts: readonly CompareTrial[]): FailureCategory | null {
+  const counts = emptyCounts();
+  for (const t of ts) if (isFailed(t) && t.failureCategory) counts[t.failureCategory]++;
+  let best: FailureCategory | null = null;
+  for (const c of FAILURE_CATEGORIES) if (counts[c] > 0 && (best === null || counts[c] > counts[best])) best = c;
+  return best;
+}
 
 /**
  * The noise rule (DESIGN 9.4): noise iff CI_low <= 0 <= CI_high, so a CI that touches 0 is noise. The
@@ -289,13 +319,31 @@ export function compare(input: CompareInput, opts: CompareOptions): ComparePaylo
     const ra = mean(p.a);
     const rb = mean(p.b);
     const base = { task_id: p.task.id, category: p.task.category, n_a: p.a.length, n_b: p.b.length, rate_a: ra, rate_b: rb, delta: ra - rb };
-    const tail = { direction_only: true as const, judge_excluded: withheld(p) };
+    const slot = byTask.get(p.task.id)!;
+    const tail = {
+      direction_only: true as const,
+      judge_excluded: withheld(p),
+      failure_category_a: modeCategory(slot.a),
+      failure_category_b: modeCategory(slot.b),
+    };
     if (p.a.length < MIN_TRIALS_PER_SIDE || p.b.length < MIN_TRIALS_PER_SIDE) {
       return { ...base, ci_low: null, ci_high: null, verdict: 'insufficient_data', ...tail };
     }
     const [lo, hi] = twoSampleDeltaCi(p.a, p.b, perTaskResamples, seed + p.index + 1);
     return { ...base, ci_low: lo, ci_high: hi, verdict: noiseRule(ra - rb, lo, hi), ...tail };
   });
+
+  const failures: FailureHistogram = { a: emptyCounts(), b: emptyCounts(), uncategorized: { a: 0, b: 0 } };
+  for (const p of headline) {
+    const slot = byTask.get(p.task.id)!;
+    for (const [side, ts] of [['a', slot.a], ['b', slot.b]] as const) {
+      for (const t of ts) {
+        if (!isFailed(t)) continue;
+        if (t.failureCategory) failures[side][t.failureCategory]++;
+        else failures.uncategorized[side]++;
+      }
+    }
+  }
 
   const nScored = headline.reduce((n, p) => n + p.a.length + p.b.length, 0);
   // Only trials that entered the headline: errored attempts and judge-withheld tasks say nothing about the reported numbers.
@@ -366,6 +414,7 @@ export function compare(input: CompareInput, opts: CompareOptions): ComparePaylo
     mcnemar: mc,
     mcnemar_omitted: mcOmitted,
     per_task: perTask,
+    failures,
     cost: metric((t) => t.costUsd),
     latency_ms: metric((t) => t.latencyMs),
     tokens: { input: metric((t) => t.inputTokens), output: metric((t) => t.outputTokens) },

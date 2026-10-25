@@ -97,12 +97,15 @@ export async function insertTrial(
     passed?: boolean | null;
     exitReason?: string | null;
     errorClass?: string | null;
+    /** A done, failed trial needs both (CHECK trial_failure_category_iff_failed). */
+    failureCategory?: string | null;
+    failureEvidence?: object | null;
   } = {},
 ): Promise<string> {
   const id = ulid();
   await pool.query(
-    `INSERT INTO trial (id, experiment_id, config_id, task_id, task_version_hash, trial_index, seed, status, passed, exit_reason, error_class, price_snapshot)
-     VALUES ($1, $2, $3, $4, $5, $6, 1, $7::trial_status, $8, $9::exit_reason, $10::error_class, '{"input_price_per_mtok":1,"output_price_per_mtok":2}')`,
+    `INSERT INTO trial (id, experiment_id, config_id, task_id, task_version_hash, trial_index, seed, status, passed, exit_reason, error_class, failure_category, failure_evidence, price_snapshot)
+     VALUES ($1, $2, $3, $4, $5, $6, 1, $7::trial_status, $8, $9::exit_reason, $10::error_class, $11::failure_category, $12::jsonb, '{"input_price_per_mtok":1,"output_price_per_mtok":2}')`,
     [
       id,
       experimentId,
@@ -114,6 +117,8 @@ export async function insertTrial(
       fields.passed ?? null,
       fields.exitReason ?? null,
       fields.errorClass ?? null,
+      fields.failureCategory ?? null,
+      fields.failureEvidence === undefined || fields.failureEvidence === null ? null : JSON.stringify(fields.failureEvidence),
     ],
   );
   return id;

@@ -412,7 +412,7 @@ describe('experiments (S1): CRUD, trial generation, transitions', () => {
       const id = await started({ n_trials: 1 });
       const trials = await prisma.trial.findMany({ where: { experimentId: id }, orderBy: { id: 'asc' } });
       await prisma.trial.update({ where: { id: trials[0].id }, data: { status: 'running', attemptCount: 1 } });
-      await prisma.trial.update({ where: { id: trials[1].id }, data: { status: 'done', passed: false, exitReason: 'completed' } });
+      await prisma.trial.update({ where: { id: trials[1].id }, data: { status: 'done', passed: false, exitReason: 'completed', failureCategory: 'wrong_answer', failureEvidence: { rule: 10, category: 'wrong_answer', detail: 'fixture' } } });
       await prisma.trial.update({ where: { id: trials[2].id }, data: { status: 'errored', errorClass: 'config_invalid' } });
       await prisma.trial.update({ where: { id: trials[3].id }, data: { status: 'cancelled' } });
       const res = await http.get(`/experiments/${id}`);

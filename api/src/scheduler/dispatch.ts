@@ -5,7 +5,7 @@
 import { HttpException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveJudgeModel } from '../judge/judge-model';
-import { erroredResult, IngestedTrial, ingest, IngestError, PriceSnapshot } from '../trials/ingest';
+import { erroredResult, FailureTask, IngestedTrial, ingest, IngestError, PriceSnapshot } from '../trials/ingest';
 import { SettingsJson, TrialResult, TrialSpec } from '../worker-client/types';
 import { WorkerClient, WorkerUnavailableError } from '../worker-client/worker-client';
 
@@ -40,6 +40,11 @@ export function workerHttpStatus(err: unknown): number | null {
 }
 
 export async function buildSpec(prisma: PrismaService, c: ClaimedTrial): Promise<TrialSpec> {
+  return (await buildSpecAndContext(prisma, c)).spec;
+}
+
+/** The spec for the worker, and what the failure rules need that the worker's result does not carry (task category, fixture, memory mode). */
+export async function buildSpecAndContext(prisma: PrismaService, c: ClaimedTrial): Promise<{ spec: TrialSpec; failureTask: FailureTask }> {
   const config = await prisma.config.findUniqueOrThrow({ where: { id: c.configId }, include: { model: true } });
   const task = await prisma.task.findUnique({ where: { id_versionHash: { id: c.taskId, versionHash: c.taskVersionHash } } });
   if (!task) throw new SpecBuildError(`task ${c.taskId}@${c.taskVersionHash} is no longer stored`);
@@ -65,7 +70,8 @@ export async function buildSpec(prisma: PrismaService, c: ClaimedTrial): Promise
     throw e;
   }
 
-  return {
+  const failureTask: FailureTask = { taskCategory: task.category, taskFixtureDir: task.fixtureDir, memoryMode: settings.memory?.mode === 'seeded' ? 'seeded' : 'off' };
+  const spec: TrialSpec = {
     trial_id: c.trialId,
     attempt: c.attemptNo,
     seed: c.seed,
@@ -91,6 +97,7 @@ export async function buildSpec(prisma: PrismaService, c: ClaimedTrial): Promise
     memory_seed: memorySeed,
     ...(judgeModel ? { judge_model: judgeModel } : {}),
   };
+  return { spec, failureTask };
 }
 
 export interface WorkerOutcome {
@@ -104,7 +111,12 @@ export interface WorkerOutcome {
  * error is worker_crash; a result the API cannot store is worker_crash "worker result rejected" (an oversized trace
  * gets 1 retry); an errored TrialResult keeps its own error_class.
  */
-export async function runOnWorker(worker: Pick<WorkerClient, 'runTrial'>, spec: TrialSpec, price: PriceSnapshot): Promise<WorkerOutcome> {
+export async function runOnWorker(
+  worker: Pick<WorkerClient, 'runTrial'>,
+  spec: TrialSpec,
+  price: PriceSnapshot,
+  failureTask?: FailureTask,
+): Promise<WorkerOutcome> {
   let result: TrialResult;
   try {
     result = await worker.runTrial(spec);
@@ -116,7 +128,7 @@ export async function runOnWorker(worker: Pick<WorkerClient, 'runTrial'>, spec: 
     return { ingested: ingest(erroredResult('worker_crash', message), price) };
   }
   try {
-    return { ingested: ingest(result, price) };
+    return { ingested: ingest(result, price, failureTask) };
   } catch (e) {
     if (!(e instanceof IngestError)) throw e;
     // An oversized trace is the very thing the 5 MB cap (DATA_MODEL 2.9) keeps out of the database, so it is not kept as a partial trace.

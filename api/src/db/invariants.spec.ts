@@ -6,6 +6,7 @@ import { ulid } from '../common/ulid';
 const CHECK_VIOLATION = '23514';
 const UNIQUE_VIOLATION = '23505';
 const INVALID_ENUM = '22P02';
+const EVIDENCE = { rule: 10, category: 'wrong_answer', detail: 'fixture' };
 
 describe('database invariants', () => {
   let pool: Pool;
@@ -109,7 +110,7 @@ describe('database invariants', () => {
       await pool.query(`UPDATE experiment SET status = 'partial' WHERE id = $1`, [exp]);
 
       const ok = await insertExperiment(pool, { status: 'running' });
-      await insertTrial(pool, base, ok, { index: 0, status: 'done', passed: false, exitReason: 'timeout' });
+      await insertTrial(pool, base, ok, { index: 0, status: 'done', passed: false, exitReason: 'timeout', failureCategory: 'timeout', failureEvidence: EVIDENCE });
       await pool.query(`UPDATE experiment SET status = 'completed' WHERE id = $1`, [ok]);
     });
   });
@@ -173,7 +174,48 @@ describe('database invariants', () => {
 
     it('accepts a done trial with passed false', async () => {
       const exp = await insertExperiment(pool);
-      await insertTrial(pool, base, exp, { status: 'done', passed: false, exitReason: 'max_steps' });
+      await insertTrial(pool, base, exp, { status: 'done', passed: false, exitReason: 'max_steps', failureCategory: 'step_exhaustion', failureEvidence: EVIDENCE });
+    });
+  });
+
+  describe('failure category (P6, 0003_failure_category)', () => {
+    it('rejects a done, failed trial without a category, with a category but no evidence, and a passed trial with a category', async () => {
+      const exp = await insertExperiment(pool);
+      const none = await sqlState(insertTrial(pool, base, exp, { index: 0, status: 'done', passed: false, exitReason: 'completed' }));
+      expect(none?.code).toBe(CHECK_VIOLATION);
+      expect(none?.message).toContain('trial_failure_category_iff_failed');
+      const noEvidence = await sqlState(insertTrial(pool, base, exp, { index: 1, status: 'done', passed: false, exitReason: 'completed', failureCategory: 'wrong_answer' }));
+      expect(noEvidence?.code).toBe(CHECK_VIOLATION);
+      expect(noEvidence?.message).toContain('trial_failure_evidence_iff_category');
+      const passed = await sqlState(insertTrial(pool, base, exp, { index: 2, status: 'done', passed: true, exitReason: 'completed', failureCategory: 'wrong_answer', failureEvidence: EVIDENCE }));
+      expect(passed?.code).toBe(CHECK_VIOLATION);
+      expect(passed?.message).toContain('trial_failure_category_iff_failed');
+    });
+
+    it('rejects a category on a pending or errored trial, and accepts none on them and on a passed one', async () => {
+      const exp = await insertExperiment(pool);
+      const pending = await sqlState(insertTrial(pool, base, exp, { index: 0, status: 'pending', failureCategory: 'timeout', failureEvidence: EVIDENCE }));
+      expect(pending?.code).toBe(CHECK_VIOLATION);
+      const errored = await sqlState(insertTrial(pool, base, exp, { index: 1, status: 'errored', errorClass: 'worker_crash', failureCategory: 'timeout', failureEvidence: EVIDENCE }));
+      expect(errored?.code).toBe(CHECK_VIOLATION);
+      await insertTrial(pool, base, exp, { index: 2, status: 'pending' });
+      await insertTrial(pool, base, exp, { index: 3, status: 'errored', errorClass: 'worker_crash' });
+      await insertTrial(pool, base, exp, { index: 4, status: 'done', passed: true, exitReason: 'completed' });
+    });
+
+    it('only accepts the 10 categories of the card', async () => {
+      const exp = await insertExperiment(pool);
+      const bad = await sqlState(insertTrial(pool, base, exp, { status: 'done', passed: false, exitReason: 'completed', failureCategory: 'because', failureEvidence: EVIDENCE }));
+      expect(bad?.code).toBe(INVALID_ENUM); // not a label of the enum
+      const labels = await pool.query(`SELECT unnest(enum_range(NULL::failure_category))::text AS label`);
+      expect(labels.rows.map((r) => r.label)).toEqual([
+        'step_exhaustion', 'timeout', 'hallucinated_tool_args', 'wrong_tool', 'tool_error_unrecovered', 'no_final_answer', 'gave_up_early', 'grader_disagreement', 'memory_ignored', 'wrong_answer',
+      ]); // prettier-ignore
+    });
+
+    it('is validated on a database with no old failed trial (the migration validates it when nothing needs a backfill)', async () => {
+      const r = await pool.query(`SELECT convalidated FROM pg_constraint WHERE conname = 'trial_failure_category_iff_failed'`);
+      expect(r.rows).toEqual([{ convalidated: true }]);
     });
   });
 

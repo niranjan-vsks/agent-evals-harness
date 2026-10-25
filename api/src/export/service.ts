@@ -23,6 +23,7 @@ export const EXPORT_CSV_COLUMNS = [
   'latency_ms',
   'rate_limit_events',
   'error_class',
+  'failure_category',
 ] as const;
 
 export const COMPARE_CSV_COLUMNS = ['task_id', 'category', 'n_a', 'n_b', 'rate_a', 'rate_b', 'delta', 'ci_low', 'ci_high', 'verdict'] as const;
@@ -174,6 +175,8 @@ export class ExportService {
         rate_limit_events: t.rateLimitEvents,
         error_class: t.errorClass,
         error_message: t.errorMessage,
+        failure_category: t.failureCategory,
+        failure_evidence: t.failureEvidence,
         started_at: t.startedAt,
         ended_at: t.endedAt,
         grader_results: t.graders.map((g) => ({
@@ -234,6 +237,7 @@ export class ExportService {
       t.latencyMs,
       t.rateLimitEvents,
       t.errorClass,
+      t.failureCategory,
     ]);
     return toCsv(EXPORT_CSV_COLUMNS, rows);
   }

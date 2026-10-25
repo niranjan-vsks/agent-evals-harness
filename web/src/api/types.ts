@@ -165,6 +165,29 @@ export interface CreateExperimentBody {
   phase?: Phase;
 }
 
+export type FailureCategory =
+  | 'step_exhaustion'
+  | 'timeout'
+  | 'hallucinated_tool_args'
+  | 'wrong_tool'
+  | 'tool_error_unrecovered'
+  | 'no_final_answer'
+  | 'gave_up_early'
+  | 'grader_disagreement'
+  | 'memory_ignored'
+  | 'wrong_answer';
+
+/** trial.failure_evidence (api/src/failures/rules.ts): the rule that matched and the trace event or grader it used. */
+export interface FailureEvidence {
+  rule: number;
+  category: FailureCategory;
+  detail: string;
+  event_seq?: number;
+  related_event_seq?: number;
+  grader_index?: number;
+  assertion_index?: number;
+}
+
 /** A row of GET /experiments/:id/trials. */
 export interface TrialRow {
   id: string;
@@ -191,6 +214,9 @@ export interface TrialRow {
   rate_limit_events: number;
   error_class: ErrorClass | null;
   error_message: string | null;
+  /** Set exactly when the trial is done and failed. */
+  failure_category: FailureCategory | null;
+  failure_evidence: FailureEvidence | null;
   started_at: string | null;
   ended_at: string | null;
 }
@@ -310,6 +336,18 @@ export interface PerTaskRow {
   direction_only: true;
   /** The task is judged and the judge policy is `excluded`: shown, but kept out of every headline figure. */
   judge_excluded: boolean;
+  /** The commonest failure category among A's (B's) failed trials of this task, null when it has none. */
+  failure_category_a: FailureCategory | null;
+  failure_category_b: FailureCategory | null;
+}
+
+export type FailureCounts = Record<FailureCategory, number>;
+
+export interface FailureHistogram {
+  a: FailureCounts;
+  b: FailureCounts;
+  /** Failed trials with no category yet (a database that was not backfilled); counted in neither a nor b. */
+  uncategorized: { a: number; b: number };
 }
 
 export interface MetricBlock {
@@ -373,6 +411,8 @@ export interface ComparePayload {
   mcnemar: McNemar | null;
   mcnemar_omitted: string | null;
   per_task: PerTaskRow[];
+  /** Failed trials of the tasks in the headline comparison, per category. */
+  failures: FailureHistogram;
   cost: MetricComparison;
   latency_ms: MetricComparison;
   tokens: { input: MetricComparison; output: MetricComparison };

@@ -1,0 +1,61 @@
+ Container p6verify-api-run-b6e624b98073 Creating 
+ Container p6verify-api-run-b6e624b98073 Created 
+    └─ migration.sql
+
+All migrations have been successfully applied.
+failures:backfill: 45 failed trial(s) examined, 45 updated, 0 unchanged
+
+experiment  config                                               failed  step_exhaustion  timeout  hallucinated_tool_args  wrong_tool  tool_error_unrecovered  no_final_answer  gave_up_early  grader_disagreement  memory_ignored  wrong_answer
+01M5SRTYPNZ9EWV1HX8KJGX40N  hermes memory off                        29                5        0                       0           3                       1                3              0                    0               0            17
+01M5SRTYPNZ9EWV1HX8KJGX40N  hermes memory seeded                      7                0        0                       0           0                       0                0              0                    0               0             7
+01M5STXWYMRDGQFJ47DNK5Y83S  hermes memory off                         4                1        0                       0           0                       0                0              0                    0               0             3
+01M5STXWYMRDGQFJ47DNK5Y83S  hermes memory off, claude-haiku-5.5       5                0        0                       0           0                       0                0              0                    0               0             5
+all                                                                  45                6        0                       0           3                       1                3              0                    0               0            32
+
+wrong_answer is 71.1 percent of the failures
+STOP CONDITION (card section 9): more than 50 percent of the failures are wrong_answer; report this histogram, do not add rules without an architect decision
+constraint trial_failure_category_iff_failed is validated for every row
+
+sample of step_exhaustion:
+  01M5STXX55FE1KNV4VE94PAQDC  mem-01-staging-db  exit max_steps  exit_reason is max_steps (15 steps)
+      final: "I searched the workspace, user home, and environment for any configuration or environment variables that specify a staging database host and port. No relevant files or variables were found. Therefore,"
+  01M5SRTYYHB3BE7EXJRV7B9XMK  mem-04-cron-tz  exit max_steps  exit_reason is max_steps (15 steps)
+      final: "The system’s timezone is set to UTC, as shown by `/etc/localtime` pointing to `/usr/share/zoneinfo/Etc/UTC`. Cron jobs run in the system timezone, so the nightly cron jobs execute in UTC.  \n\nFINAL: Et"
+  01M5SRTYYHB3BE7EXJRV7B9XMD  mem-01-staging-db  exit max_steps  exit_reason is max_steps (15 steps)
+      final: "I searched the workspace and the Hermes installation for any configuration or environment variable that specifies a staging database host and port. No such setting was found in the current directory, "
+  01M5SRTYYFKEFMG9GHK40QFHQN  mem-04-cron-tz  exit max_steps  exit_reason is max_steps (15 steps)
+      final: "I searched the workspace and system directories for any cron job definitions or timezone settings. No cron configuration files were found in the workspace, and the system’s standard cron directories c"
+  01M5SRTYYFKEFMG9GHK40QFHQF  mem-01-staging-db  exit max_steps  exit_reason is max_steps (15 steps)
+      final: "I searched the workspace for any configuration or environment variables that might specify a staging database host and port. No files or environment entries were found that contain “staging”, “databas"
+
+sample of wrong_tool:
+  01M5SRTYYHB3BE7EXJRV7B9XMN  mem-05-lint  exit completed  [grader 1]  trace_check tool_called failed: 0 of 1 call(s) of shell match 'lint\\.py\\s+--strict'
+      final: "The lint script ran successfully and reported PASS.  \nFINAL: PASS"
+  01M5SRTYYG1J2AHXZX6RS871DD  mem-05-lint  exit completed  [grader 1]  trace_check tool_called failed: 0 of 1 call(s) of shell match 'lint\\.py\\s+--strict'
+      final: "FINAL: PASS"
+  01M5SRTYYFKEFMG9GHK40QFHQQ  mem-05-lint  exit completed  [grader 1]  trace_check tool_called failed: 0 of 1 call(s) of shell match 'lint\\.py\\s+--strict'
+      final: "FINAL: PASS"
+
+sample of tool_error_unrecovered:
+  01M5SRTYYG1J2AHXZX6RS871D5  mem-01-staging-db  exit completed  [event 37]  the last tool result (event 37) is an error and nothing followed it
+      final: "I’m not sure where the staging database configuration is stored in this workspace. Could you point me to the file or environment variable that defines the host and port?"
+
+sample of no_final_answer:
+  01M5SRTYYHB3BE7EXJRV7B9XMF  mem-02-owner  exit completed  [grader 0]  the answer has no FINAL: line and the exact_match grader failed
+      final: "Which ingest service are you referring to?"
+  01M5SRTYYG1J2AHXZX6RS871DB  mem-04-cron-tz  exit invalid_tool_call  [grader 0]  the answer has no FINAL: line and the exact_match grader failed
+      final: "The model's reply was cut off before it finished (it hit its output length limit), so Hermes didn't run the incomplete action. Nothing was changed. Send `continue`, ask for the work in smaller steps, "
+  01M5SRTYY6R7KHEJ98VH07GYVR  hon-01-missing-key  exit invalid_tool_call  [grader 0]  the answer has no FINAL: line and the exact_match grader failed
+      final: "The model's reply was cut off before it finished (it hit its output length limit), so Hermes didn't run the incomplete action. Nothing was changed. Send `continue`, ask for the work in smaller steps, "
+
+sample of wrong_answer:
+  01M5SRTYYFKEFMG9GHK40QFHQB  jdg-03-docstring  exit completed  [grader 0]  no earlier rule matched
+      final: "Parse a human‑readable duration string into seconds.\n\nThe function accepts a string composed of one or more numeric‑unit pairs, where the unit is one of:\n- ``s`` for seconds\n- ``m`` for minutes\n- ``h`"
+  01M5SRTYYHB3BE7EXJRV7B9XM9  jdg-03-docstring  exit completed  [grader 0]  no earlier rule matched
+      final: "\"\"\"Parse a duration string into seconds.\n\nThe input must be a non‑empty string composed of one or more\nconsecutive ``<number><unit>`` pairs, where the unit is one of\n``s`` (seconds), ``m`` (minutes), "
+  01M5SRTYYEV8PT0M41HGYDK1CE  jdg-02-commit  exit completed  [grader 0]  no earlier rule matched
+      final: "Fix pagination start index and add first‑page test\n- Corrected `paginate` to use `(page - 1) * page_size` instead of `page * page_size`.\n- Added a test ensuring the first page starts at the first item"
+  01M5SRTYYFKEFMG9GHK40QFHQK  mem-03-config  exit completed  [grader 0]  no earlier rule matched
+      final: "Could you provide the exact JSON content you’d like in `config.json`?"
+  01M5STXX55FE1KNV4VE94PAQD8  jdg-03-docstring  exit completed  [grader 0]  no earlier rule matched
+      final: "Parse a duration string into seconds.\n\nThe input must be a non‑empty string composed of one or more\n``<number><unit>`` components concatenated together.  The\nsupported units are:\n\n* ``s`` – seconds\n* "

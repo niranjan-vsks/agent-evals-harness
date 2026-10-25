@@ -89,6 +89,7 @@ export class CompareService {
       inputTokens: t.inputTokens,
       outputTokens: t.outputTokens,
       rateLimitEvents: t.rateLimitEvents,
+      failureCategory: t.failureCategory,
     }));
 
     const judge = await this.judgeInUse(

@@ -40,6 +40,8 @@ export function makeTrial(over: Partial<Trial> = {}): Trial {
     rate_limit_events: 2,
     error_class: null,
     error_message: null,
+    failure_category: 'step_exhaustion',
+    failure_evidence: { rule: 1, category: 'step_exhaustion', detail: 'exit_reason is max_steps (15 steps)' },
     started_at: '2026-10-24T22:18:30.308Z',
     ended_at: '2026-10-24T22:19:31.000Z',
     grader_results: [exactMatchFail()],

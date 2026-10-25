@@ -4,6 +4,7 @@ import { CompareFixtures, EXACT_GRADER, JUDGE_GRADER, keysDeep } from '../../tes
 import { createExperimentsApp } from '../../test/experiments-app';
 import { Fixtures } from '../../test/helpers';
 import { ulid } from '../common/ulid';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { STATS_VERSION } from '../stats/version';
 import { hasJudgeGrader } from './service';
@@ -51,6 +52,45 @@ describe('GET /experiments/:id/compare and /pilot (P3 S4)', () => {
     return { id: ex.id, trials };
   }
   const judgedTrialIds = (trials: { id: string; taskId: string }[]) => trials.filter((t) => t.taskId === JUDGED).map((t) => t.id);
+
+  describe('failure categories (P6)', () => {
+    it('counts the stored categories of each side, per category and per task', async () => {
+      const ex = await fx.experiment({ configIds: [cfgA, cfgB], taskIds: PLAIN, nTrials: 1, status: 'running', seed: 7 });
+      const trials = await prisma.trial.findMany({ where: { experimentId: ex.id } });
+      const of = (cfg: string, task: string) => trials.find((t) => t.configId === cfg && t.taskId === task)!.id;
+      await cf.done(of(cfgA, PLAIN[0]), false, { failureCategory: 'step_exhaustion' });
+      await cf.done(of(cfgA, PLAIN[1]), false, { failureCategory: 'step_exhaustion' });
+      await cf.done(of(cfgA, PLAIN[2]), true);
+      await cf.done(of(cfgB, PLAIN[0]), true);
+      await cf.done(of(cfgB, PLAIN[1]), false, { failureCategory: 'memory_ignored' });
+      await cf.done(of(cfgB, PLAIN[2]), false); // wrong_answer, the fixture default
+      const body = (await get(`/experiments/${ex.id}/compare?a=${cfgA}&b=${cfgB}`).expect(200)).body;
+      expect(body.failures.a).toMatchObject({ step_exhaustion: 2, memory_ignored: 0, wrong_answer: 0 });
+      expect(body.failures.b).toMatchObject({ step_exhaustion: 0, memory_ignored: 1, wrong_answer: 1 });
+      expect(Object.keys(body.failures.a)).toHaveLength(10);
+      expect(body.failures.uncategorized).toEqual({ a: 0, b: 0 });
+      const row = (task: string) => body.per_task.find((r: { task_id: string }) => r.task_id === task);
+      expect([row(PLAIN[0]).failure_category_a, row(PLAIN[0]).failure_category_b]).toEqual(['step_exhaustion', null]);
+      expect([row(PLAIN[1]).failure_category_a, row(PLAIN[1]).failure_category_b]).toEqual(['step_exhaustion', 'memory_ignored']);
+      expect([row(PLAIN[2]).failure_category_a, row(PLAIN[2]).failure_category_b]).toEqual([null, 'wrong_answer']);
+      // the same numbers come back from the stored comparison_run
+      const stored = (await get(`/experiments/${ex.id}/compare?a=${cfgA}&b=${cfgB}&persist=1`).expect(200)).body;
+      const run = await prisma.comparisonRun.findUniqueOrThrow({ where: { id: stored.comparison_run_id } });
+      expect((run.result as { failures: unknown }).failures).toEqual(body.failures);
+    });
+
+    it('a trial and the trial list carry failure_category and failure_evidence', async () => {
+      const ex = await fx.experiment({ configIds: [cfgA], taskIds: [PLAIN[0], PLAIN[1]], nTrials: 1, status: 'running', seed: 7 });
+      const trials = await prisma.trial.findMany({ where: { experimentId: ex.id } });
+      await cf.done(trials[0].id, false, { failureCategory: 'timeout' });
+      await cf.done(trials[1].id, true);
+      const one = (await get(`/trials/${trials[0].id}`).expect(200)).body;
+      expect(one).toMatchObject({ passed: false, failure_category: 'timeout', failure_evidence: { rule: 10, category: 'timeout' } });
+      expect(await get(`/trials/${trials[1].id}`).expect(200).then((r) => [r.body.failure_category, r.body.failure_evidence])).toEqual([null, null]);
+      const list = (await get(`/experiments/${ex.id}/trials`).expect(200)).body as Array<{ id: string; failure_category: string | null }>;
+      expect(Object.fromEntries(list.map((t) => [t.id, t.failure_category]))).toEqual({ [trials[0].id]: 'timeout', [trials[1].id]: null });
+    });
+  });
 
   describe('errors', () => {
     it('404 for an unknown experiment on both routes', async () => {
@@ -339,7 +379,12 @@ describe('GET /experiments/:id/compare and /pilot (P3 S4)', () => {
 
       // a trial changes: the result differs, so a new row is added; asking again reuses that one
       const t = trials.find((x) => x.configId === cfgB && x.taskId === PLAIN[1])!;
-      await prisma.trial.update({ where: { id: t.id }, data: { passed: !(await prisma.trial.findUniqueOrThrow({ where: { id: t.id } })).passed } });
+      const flipped = !(await prisma.trial.findUniqueOrThrow({ where: { id: t.id } })).passed;
+      await prisma.trial.update({
+        where: { id: t.id },
+        // the CHECK of 0003_failure_category: a failed done trial carries a category and its evidence
+        data: { passed: flipped, failureCategory: flipped ? null : 'wrong_answer', failureEvidence: flipped ? Prisma.DbNull : { rule: 10, category: 'wrong_answer', detail: 'fixture' } },
+      });
       const changed = (await get(`/experiments/${id}/compare?a=${cfgA}&b=${cfgB}&persist=1`).expect(200)).body.comparison_run_id;
       expect(changed).not.toBe(first);
       expect((await get(`/experiments/${id}/compare?a=${cfgA}&b=${cfgB}&persist=1`).expect(200)).body.comparison_run_id).toBe(changed);

@@ -159,7 +159,7 @@ describe('exports after a run through the real scheduler (P3 gate 4 shape)', () 
     const res = await get(`/experiments/${experimentId}/export.csv`).expect(200);
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8');
     expect(res.text.split('\n')[0]).toBe(
-      'trial_id,config_id,config_name,task_id,task_category,trial_index,status,passed,exit_reason,steps,input_tokens,output_tokens,cost_usd,latency_ms,rate_limit_events,error_class',
+      'trial_id,config_id,config_name,task_id,task_category,trial_index,status,passed,exit_reason,steps,input_tokens,output_tokens,cost_usd,latency_ms,rate_limit_events,error_class,failure_category',
     );
     expect(res.text.split('\n')[0]).toBe(EXPORT_CSV_COLUMNS.join(','));
     const records = parseCsv(res.text);
@@ -174,6 +174,9 @@ describe('exports after a run through the real scheduler (P3 gate 4 shape)', () 
     expect(rows.filter((r) => r.config_id === cfgB).every((r) => r.config_name === 'hermes seeded')).toBe(true);
     expect(rows[0]).toMatchObject({ task_category: 'neutral_deterministic', status: 'done', passed: 'true', exit_reason: 'completed', steps: '2', input_tokens: '3000', output_tokens: '40', rate_limit_events: '0', error_class: '' });
     expect(rows.filter((r) => r.task_id === 'exe-02-fail').map((r) => r.passed)).toEqual(['false', 'false', 'false', 'false']);
+    // The real scheduler path (ingest, settle) stored a category for every failed trial and none for a pass.
+    expect(rows.filter((r) => r.task_id === 'exe-02-fail').map((r) => r.failure_category)).toEqual(['wrong_answer', 'wrong_answer', 'wrong_answer', 'wrong_answer']);
+    expect(rows.filter((r) => r.passed === 'true').every((r) => r.failure_category === '')).toBe(true);
     expect(rows.find((r) => r.task_id === 'exe-03-ok')!.task_category).toBe('memory_dependent');
     // The cost is the trial's own stored decimal: 3000 in x 1 + 40 out x 2 per million tokens.
     const db = await prisma.trial.findUniqueOrThrow({ where: { id: rows[0].trial_id } });

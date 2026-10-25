@@ -8,6 +8,7 @@ import { api, ApiError } from '../api/client';
 import type { AggregateBlock, CategoryBlock, ComparePayload, ExperimentDetail, MetricBlock, MetricComparison, PerTaskRow, Verdict } from '../api/types';
 import Interval from '../components/Interval.vue';
 import { describeAxis, type AxisDescription } from '../lib/axis';
+import { FAILURE_CATEGORIES, FAILURE_RULE } from '../lib/failures';
 import { num, usd } from '../lib/format';
 import { useAppStore } from '../stores/app';
 
@@ -155,6 +156,15 @@ const categoryCards = computed<Array<{ key: (typeof CATEGORY_KEYS)[number]; bloc
 
 const includedRows = computed<PerTaskRow[]>(() => (payload.value?.per_task ?? []).filter((r) => !r.judge_excluded));
 const excludedRows = computed<PerTaskRow[]>(() => (payload.value?.per_task ?? []).filter((r) => r.judge_excluded));
+
+// Failure categories (P6): the counts are the API's, in the order of its rules. The only arithmetic is the sum of a column.
+const failureRows = computed(() => {
+  const f = payload.value?.failures;
+  if (!f) return [];
+  return FAILURE_CATEGORIES.map((key) => ({ key, a: f.a[key], b: f.b[key], rule: FAILURE_RULE[key] }));
+});
+const failureUncategorized = computed(() => payload.value?.failures.uncategorized ?? { a: 0, b: 0 });
+const failureTotal = (side: 'a' | 'b'): number => failureRows.value.reduce((n, r) => n + r[side], 0) + failureUncategorized.value[side];
 
 const policyClass = (p: ComparePayload['judge_policy_applied']): string => (p === 'trusted' ? 'badge-good' : p === 'flagged' ? 'badge-warn' : 'badge-bad');
 
@@ -381,7 +391,7 @@ const DELTA_TICKS = [-1, -0.5, 0, 0.5, 1];
         <thead>
           <tr>
             <th>task</th><th>category</th><th class="num">n_a</th><th class="num">n_b</th><th class="num">rate_a</th><th class="num">rate_b</th>
-            <th>delta (A - B)</th><th>verdict</th>
+            <th>delta (A - B)</th><th>verdict</th><th>failure A</th><th>failure B</th>
           </tr>
         </thead>
         <tbody>
@@ -394,8 +404,10 @@ const DELTA_TICKS = [-1, -0.5, 0, 0.5, 1];
             <td class="num">{{ num(r.rate_b) }}</td>
             <td><Interval :value="r.delta" :low="r.ci_low" :high="r.ci_high" /></td>
             <td :class="verdictLine(r).kind === 'inconsistent' ? 'fail' : ''">{{ verdictLine(r).word }}</td>
+            <td class="mono small" :data-testid="`failure-a-${r.task_id}`">{{ r.failure_category_a ?? '-' }}</td>
+            <td class="mono small" :data-testid="`failure-b-${r.task_id}`">{{ r.failure_category_b ?? '-' }}</td>
           </tr>
-          <tr v-if="includedRows.length === 0"><td colspan="8" class="muted">no tasks in the headline comparison</td></tr>
+          <tr v-if="includedRows.length === 0"><td colspan="10" class="muted">no tasks in the headline comparison</td></tr>
         </tbody>
       </table>
 
@@ -405,7 +417,7 @@ const DELTA_TICKS = [-1, -0.5, 0, 0.5, 1];
           <thead>
             <tr>
               <th>task</th><th>category</th><th class="num">n_a</th><th class="num">n_b</th><th class="num">rate_a</th><th class="num">rate_b</th>
-              <th>delta (A - B)</th><th>verdict</th>
+              <th>delta (A - B)</th><th>verdict</th><th>failure A</th><th>failure B</th>
             </tr>
           </thead>
           <tbody>
@@ -418,10 +430,47 @@ const DELTA_TICKS = [-1, -0.5, 0, 0.5, 1];
               <td class="num">{{ num(r.rate_b) }}</td>
               <td><Interval :value="r.delta" :low="r.ci_low" :high="r.ci_high" /></td>
               <td :class="verdictLine(r).kind === 'inconsistent' ? 'fail' : ''">{{ verdictLine(r).word }}</td>
+              <td class="mono small">{{ r.failure_category_a ?? '-' }}</td>
+              <td class="mono small">{{ r.failure_category_b ?? '-' }}</td>
             </tr>
           </tbody>
         </table>
       </template>
+
+      <!-- (7b) failure categories -->
+      <h2>Failure categories</h2>
+      <p class="muted small" data-testid="failures-caption">
+        Why the failed trials failed: pure rules over the trace and the grader results, the first matching rule wins. Counts are failed trials
+        of the tasks in the headline comparison. A count is a number of trials, not an effect, and has no interval.
+      </p>
+      <p v-if="failureUncategorized.a + failureUncategorized.b > 0" class="warn" data-testid="failures-uncategorized">
+        {{ failureUncategorized.a }} failed trial(s) of A and {{ failureUncategorized.b }} of B have no category yet: run npm run failures:backfill in the api container.
+      </p>
+      <table data-testid="failures-table">
+        <thead>
+          <tr><th>category</th><th class="num">A: {{ payload.config_a.name }}</th><th class="num">B: {{ payload.config_b.name }}</th><th>rule</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in failureRows" :key="r.key" :data-testid="`failure-row-${r.key}`">
+            <td class="mono">{{ r.key }}</td>
+            <td class="num" :class="r.a === 0 ? 'muted' : ''" :data-testid="`failure-a-count-${r.key}`">{{ r.a }}</td>
+            <td class="num" :class="r.b === 0 ? 'muted' : ''" :data-testid="`failure-b-count-${r.key}`">{{ r.b }}</td>
+            <td class="small muted">{{ r.rule }}</td>
+          </tr>
+          <tr v-if="failureUncategorized.a + failureUncategorized.b > 0" data-testid="failure-row-uncategorized">
+            <td class="mono">uncategorized</td>
+            <td class="num">{{ failureUncategorized.a }}</td>
+            <td class="num">{{ failureUncategorized.b }}</td>
+            <td class="small muted">no category stored for this trial yet</td>
+          </tr>
+          <tr data-testid="failure-row-total">
+            <td><strong>failed trials</strong></td>
+            <td class="num" data-testid="failure-total-a"><strong>{{ failureTotal('a') }}</strong></td>
+            <td class="num" data-testid="failure-total-b"><strong>{{ failureTotal('b') }}</strong></td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
 
       <!-- (8) quality, cost, latency, tokens -->
       <h2>Quality, cost, latency, tokens</h2>

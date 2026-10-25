@@ -435,7 +435,7 @@ describe('per-task rows', () => {
   it('carry the DESIGN 9.6 columns and direction_only', () => {
     const out = compare(vector([[true, true]], [[false, false]]), opts());
     expect(Object.keys(out.per_task[0]).sort()).toEqual(
-      ['task_id', 'category', 'n_a', 'n_b', 'rate_a', 'rate_b', 'delta', 'ci_low', 'ci_high', 'verdict', 'direction_only', 'judge_excluded'].sort(),
+      ['task_id', 'category', 'n_a', 'n_b', 'rate_a', 'rate_b', 'delta', 'ci_low', 'ci_high', 'verdict', 'direction_only', 'judge_excluded', 'failure_category_a', 'failure_category_b'].sort(),
     );
     expect(out.per_task[0].direction_only).toBe(true);
   });
@@ -640,7 +640,7 @@ describe('payload shape (DESIGN 9.6)', () => {
       'rate_limit_affected_trials', 'judge_policy_applied', 'judge_excluded_tasks', 'aggregate', 'by_category', 'sign_test', 'mcnemar',
       'per_task', 'cost', 'latency_ms', 'tokens', 'stats_version',
     ];
-    const additions = ['ci_method', 'judge_confidence', 'judge', 'n_unfinished', 'unpaired_tasks', 'mcnemar_omitted'];
+    const additions = ['ci_method', 'judge_confidence', 'judge', 'n_unfinished', 'unpaired_tasks', 'mcnemar_omitted', 'failures'];
     expect(Object.keys(out).sort()).toEqual([...design, ...additions].sort());
     expect(Object.keys(out.aggregate).sort()).toEqual(
       ['p_a', 'p_b', 'delta', 'ci_low', 'ci_high', 'verdict', 'min_detectable', 'resamples', 'seed'].sort(),
@@ -734,5 +734,93 @@ describe('determinism', () => {
     expect(JSON.stringify(stripSeedDependent(one))).toBe(JSON.stringify(stripSeedDependent(two)));
     expect(one.aggregate.seed).toBe(1);
     expect(two.aggregate.seed).toBe(2);
+  });
+});
+
+describe('failure categories (P6)', () => {
+  const failed = (configId: string, taskId: string, trialIndex: number, failureCategory: CompareTrial['failureCategory'], over: Partial<CompareTrial> = {}) =>
+    trial(configId, taskId, trialIndex, { passed: false, failureCategory, ...over });
+  const input = (trials: CompareTrial[], tasks: CompareTask[] = [task('t1'), task('t2')]): CompareInput => ({
+    experimentId: 'exp-1', axis: 'memory', configA: A, configB: B, nTrialsPerTask: 2, tasks, trials,
+  }); // prettier-ignore
+  const zero = { step_exhaustion: 0, timeout: 0, hallucinated_tool_args: 0, wrong_tool: 0, tool_error_unrecovered: 0, no_final_answer: 0, gave_up_early: 0, grader_disagreement: 0, memory_ignored: 0, wrong_answer: 0 };
+
+  it('counts the failed trials of each side by category, with every category present in rule order', () => {
+    const out = compare(
+      input([
+        failed(A.id, 't1', 0, 'step_exhaustion'), failed(A.id, 't1', 1, 'step_exhaustion'), trial(A.id, 't2', 0), failed(A.id, 't2', 1, 'wrong_answer'),
+        failed(B.id, 't1', 0, 'memory_ignored'), trial(B.id, 't1', 1), trial(B.id, 't2', 0), trial(B.id, 't2', 1),
+      ]),
+      opts(),
+    );
+    expect(out.failures.a).toEqual({ ...zero, step_exhaustion: 2, wrong_answer: 1 });
+    expect(out.failures.b).toEqual({ ...zero, memory_ignored: 1 });
+    expect(out.failures.uncategorized).toEqual({ a: 0, b: 0 });
+    expect(Object.keys(out.failures.a)).toEqual(Object.keys(zero));
+  });
+
+  it('counts passes, errored, cancelled and unfinished trials in no category', () => {
+    const out = compare(
+      input([
+        trial(A.id, 't1', 0), trial(A.id, 't1', 1, { status: 'errored', passed: null }), trial(A.id, 't2', 0, { status: 'pending', passed: null }), trial(A.id, 't2', 1, { status: 'cancelled', passed: null }),
+        trial(B.id, 't1', 0), trial(B.id, 't1', 1), trial(B.id, 't2', 0), trial(B.id, 't2', 1),
+      ]),
+      opts(),
+    );
+    expect(out.failures.a).toEqual(zero);
+    expect(out.failures.b).toEqual(zero);
+  });
+
+  it('reports a failed trial with no category as uncategorized, in neither side map', () => {
+    const out = compare(
+      input([failed(A.id, 't1', 0, null), failed(A.id, 't1', 1, undefined), failed(A.id, 't2', 0, 'timeout'), trial(A.id, 't2', 1), ...cell(B.id, 't1', [true, true]), ...cell(B.id, 't2', [true, true])]),
+      opts(),
+    );
+    expect(out.failures.uncategorized).toEqual({ a: 2, b: 0 });
+    expect(out.failures.a).toEqual({ ...zero, timeout: 1 });
+  });
+
+  it('counts only the tasks of the headline: a judge-withheld task and an unpaired task are left out, their per-task rows keep the category', () => {
+    const tasks = [task('t1'), task('j1', 'neutral_judged', true), task('t3')];
+    const out = compare(
+      input(
+        [
+          failed(A.id, 't1', 0, 'wrong_tool'), failed(A.id, 't1', 1, 'wrong_tool'), ...cell(B.id, 't1', [true, true]),
+          failed(A.id, 'j1', 0, 'grader_disagreement'), failed(A.id, 'j1', 1, 'grader_disagreement'), ...cell(B.id, 'j1', [true, true]),
+          failed(A.id, 't3', 0, 'timeout'), // B has no scored trial for t3: unpaired
+        ],
+        tasks,
+      ),
+      opts({ judge: { policy: 'excluded', modelId: 'j', promptHash: 'h', kappa: null } }),
+    );
+    expect(out.failures.a).toEqual({ ...zero, wrong_tool: 2 });
+    const j = out.per_task.find((r) => r.task_id === 'j1')!;
+    expect([j.judge_excluded, j.failure_category_a, j.failure_category_b]).toEqual([true, 'grader_disagreement', null]);
+    expect(out.per_task.find((r) => r.task_id === 't3')).toBeUndefined(); // unpaired: no per-task row
+  });
+
+  it('gives each per-task row the commonest category of each side, the earlier rule on a tie, and null when the side never failed', () => {
+    const out = compare(
+      input(
+        [
+          failed(A.id, 't1', 0, 'wrong_answer'), failed(A.id, 't1', 1, 'wrong_answer'), failed(A.id, 't1', 2, 'timeout'), ...cell(B.id, 't1', [true, true, true]),
+          failed(A.id, 't2', 0, 'wrong_answer'), failed(A.id, 't2', 1, 'timeout'), failed(B.id, 't2', 0, 'gave_up_early'), trial(B.id, 't2', 1),
+        ],
+        [task('t1'), task('t2')],
+      ),
+      opts(),
+    );
+    const row = (id: string) => out.per_task.find((r) => r.task_id === id)!;
+    expect([row('t1').failure_category_a, row('t1').failure_category_b]).toEqual(['wrong_answer', null]);
+    expect([row('t2').failure_category_a, row('t2').failure_category_b]).toEqual(['timeout', 'gave_up_early']); // 1 vs 1: timeout is rule 2, wrong_answer rule 10
+  });
+
+  it('does not change with the order of the trials', () => {
+    const trials = [
+      failed(A.id, 't1', 0, 'wrong_answer'), failed(A.id, 't1', 1, 'timeout'), failed(A.id, 't2', 0, 'timeout'), trial(A.id, 't2', 1),
+      ...cell(B.id, 't1', [true, false]), ...cell(B.id, 't2', [true, true]),
+    ]; // prettier-ignore
+    const forward = JSON.stringify(compare(input(trials), opts()));
+    expect(JSON.stringify(compare(input([...trials].reverse()), opts()))).toBe(forward);
   });
 });

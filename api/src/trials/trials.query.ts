@@ -50,6 +50,8 @@ export class TrialsQuery {
       rate_limit_events: t.rateLimitEvents,
       error_class: t.errorClass,
       error_message: t.errorMessage,
+      failure_category: t.failureCategory,
+      failure_evidence: t.failureEvidence,
       started_at: t.startedAt,
       ended_at: t.endedAt,
       grader_results: await this.graders(id),

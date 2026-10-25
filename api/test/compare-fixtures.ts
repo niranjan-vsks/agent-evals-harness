@@ -3,7 +3,8 @@
  * creates is tracked so `cleanup` removes exactly it: the specs share one database.
  */
 import { ulid } from '../src/common/ulid';
-import { PrismaClient } from '../src/generated/prisma/client';
+import { FailureCategory } from '../src/failures/rules';
+import { Prisma, PrismaClient } from '../src/generated/prisma/client';
 import { judgePolicy } from '../src/judge/policy';
 import { Fixtures } from './helpers';
 
@@ -41,12 +42,16 @@ export class CompareFixtures {
   }
 
   /** A trial finished the way the scheduler would leave it. */
-  async done(trialId: string, passed: boolean, over: { costUsd?: number; latencyMs?: number } = {}): Promise<void> {
+  async done(trialId: string, passed: boolean, over: { costUsd?: number; latencyMs?: number; failureCategory?: FailureCategory } = {}): Promise<void> {
+    const category = passed ? null : (over.failureCategory ?? 'wrong_answer');
     await this.prisma.trial.update({
       where: { id: trialId },
       data: {
         status: 'done',
         passed,
+        // The CHECK of 0003_failure_category: a failed done trial carries its category and evidence from the same UPDATE.
+        failureCategory: category,
+        failureEvidence: category ? { rule: 10, category, detail: 'fixture' } : Prisma.DbNull,
         exitReason: 'completed',
         steps: 2,
         inputTokens: 3000,

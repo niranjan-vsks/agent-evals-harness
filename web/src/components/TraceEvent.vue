@@ -11,6 +11,8 @@ const props = defineProps<{
   expanded: boolean;
   /** For a tool_call: its tool_result. For a tool_result: the tool_call it answers. Matched on call_id by the parent. */
   paired?: Ev | null;
+  /** The event a failure-category link pointed at: drawn with an outline until another link is followed. */
+  focused?: boolean;
 }>();
 
 const emit = defineEmits<{ (e: 'toggle', seq: number): void }>();
@@ -94,7 +96,7 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
 </script>
 
 <template>
-  <li class="ev" :class="rowClass" :data-seq="event.seq" :data-kind="event.kind">
+  <li :id="`event-${event.seq}`" class="ev" :class="[rowClass, { 'ev-focus': focused }]" :data-seq="event.seq" :data-kind="event.kind" :data-focused="focused ? 'true' : undefined">
     <button type="button" class="ev-head" :aria-expanded="expanded" @click="emit('toggle', event.seq)">
       <span class="ev-caret" aria-hidden="true">{{ expanded ? 'v' : '>' }}</span>
       <span class="ev-seq mono">#{{ event.seq }}</span>
@@ -198,6 +200,7 @@ const pairedCall = computed(() => (props.paired && props.paired.kind === 'tool_c
 .ev-out-error { color: var(--bad); background: var(--bad-bg) !important; }
 .ev-fields { width: auto; }
 
+.ev-focus { outline: 2px solid var(--link); outline-offset: -2px; }
 .ev-api { color: var(--muted); }
 .ev-api .ev-kind { background: transparent; }
 .ev-memory { border-left-color: #7a4fc4; background: #f1ebfb; }

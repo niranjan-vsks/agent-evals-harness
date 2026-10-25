@@ -12,7 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { erroredResult, ingest, PriceSnapshot } from '../trials/ingest';
 import { ErrorClass } from '../worker-client/types';
 import { WorkerClient } from '../worker-client/worker-client';
-import { buildSpec, ClaimedTrial, runOnWorker, SpecBuildError, WorkerOutcome } from './dispatch';
+import { buildSpecAndContext, ClaimedTrial, runOnWorker, SpecBuildError, WorkerOutcome } from './dispatch';
 import { isDue } from './retry-policy';
 import { lockExperiment, reconcileExperiments, settleOrphan, settleTrial, SettleContext, SettleResult, TX } from './settle';
 import { cancelOnWorker } from './worker-cancel';
@@ -378,12 +378,12 @@ export class Scheduler implements OnApplicationBootstrap, OnModuleDestroy {
    */
   private async callWorker(c: ClaimedTrial): Promise<WorkerOutcome | null> {
     try {
-      const spec = await buildSpec(this.prisma, c);
+      const { spec, failureTask } = await buildSpecAndContext(this.prisma, c);
       if (!(await this.stillRunning(c))) {
         this.log.warn(`trial ${c.trialId} attempt ${c.attemptNo} is no longer running; the worker call is skipped`);
         return null;
       }
-      return await runOnWorker(this.worker, spec, c.price);
+      return await runOnWorker(this.worker, spec, c.price, failureTask);
     } catch (e) {
       if (e instanceof SpecBuildError) return { ingested: ingest(erroredResult('config_invalid', e.message), c.price) };
       const message = e instanceof Error ? e.message : String(e);

@@ -63,7 +63,7 @@ describe('exports', () => {
       expect(res.headers['content-type']).toBe('text/csv; charset=utf-8');
       expect(res.headers['content-disposition']).toMatch(/^attachment; filename="[^"]+\.csv"$/);
       expect(res.text.startsWith(`${EXPORT_CSV_COLUMNS.join(',')}\n`)).toBe(true);
-      expect(res.text).toContain('trial_id,config_id,config_name,task_id,task_category,trial_index,status,passed,exit_reason,steps,input_tokens,output_tokens,cost_usd,latency_ms,rate_limit_events,error_class\n');
+      expect(res.text).toContain('trial_id,config_id,config_name,task_id,task_category,trial_index,status,passed,exit_reason,steps,input_tokens,output_tokens,cost_usd,latency_ms,rate_limit_events,error_class,failure_category\n');
       expect(res.text.endsWith('\n')).toBe(true);
       expect(res.text.includes('\r\n')).toBe(false);
       expect(parseCsv(res.text)).toHaveLength(13);
@@ -364,7 +364,7 @@ describe('exports', () => {
       for (const id of e.trialIds) await cf.done(id, true);
       const first = (await http.get(`/experiments/${e.id}/export.json`).expect(200)).body;
 
-      await prisma.trial.update({ where: { id: e.trialIds[0] }, data: { passed: false } });
+      await prisma.trial.update({ where: { id: e.trialIds[0] }, data: { passed: false, failureCategory: 'wrong_answer', failureEvidence: { rule: 10, category: 'wrong_answer', detail: 'fixture' } } });
       const second = (await http.get(`/experiments/${e.id}/export.json`).expect(200)).body;
       expect(second.comparison_runs).toHaveLength(2);
       expect(second.comparison_run_id).not.toBe(first.comparison_run_id);
@@ -385,7 +385,7 @@ describe('exports', () => {
         if (!flipped) {
           flipped = true;
           // another connection commits a changed trial after the export's snapshot began and before the comparison runs
-          await prisma.trial.update({ where: { id: victim }, data: { passed: false } });
+          await prisma.trial.update({ where: { id: victim }, data: { passed: false, failureCategory: 'wrong_answer', failureEvidence: { rule: 10, category: 'wrong_answer', detail: 'fixture' } } });
         }
         return real(...args);
       });

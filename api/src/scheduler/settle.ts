@@ -212,6 +212,9 @@ async function settleInTx(tx: Prisma.TransactionClient, ctx: SettleContext, r: I
         rateLimitEvents: r.rateLimitEvents,
         errorClass: null,
         errorMessage: null,
+        // Same UPDATE as passed, so the CHECK "category iff done and failed" holds at every instant.
+        failureCategory: r.failure?.category ?? null,
+        failureEvidence: r.failure ? (r.failure.evidence as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         endedAt: now,
       },
     });

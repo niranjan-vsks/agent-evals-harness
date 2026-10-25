@@ -1,9 +1,11 @@
-import { costUsd, countRateLimitEvents, erroredResult, ingest, IngestError, MAX_TRACE_BYTES } from './ingest';
+import { costUsd, countRateLimitEvents, erroredResult, FailureTask, ingest, IngestError, MAX_TRACE_BYTES } from './ingest';
 import { trialSeed } from './seed';
 import { doneResult } from '../test-support/app';
 import { TrialSpec } from '../worker-client/types';
 
 const PRICE = { input_price_per_mtok: 0.018, output_price_per_mtok: 0.09 };
+
+const TASK: FailureTask = { taskCategory: 'neutral_deterministic', taskFixtureDir: 'fixtures/x', memoryMode: 'off' };
 
 const spec = {
   trial_id: 'T1',
@@ -48,10 +50,48 @@ describe('ingest', () => {
   });
 
   it('keeps a timed-out trial as a scored failure (R-2)', () => {
-    const r = ingest(doneResult(spec, {}, 'timeout'), PRICE);
+    const r = ingest(doneResult(spec, {}, 'timeout'), PRICE, TASK);
     expect(r.status).toBe('done');
     expect(r.passed).toBe(false);
     expect(r.exitReason).toBe('timeout');
+  });
+
+  describe('failure category (P6)', () => {
+    it('a failed done result carries the category and evidence of the rules', () => {
+      const r = ingest(doneResult(spec, {}, 'timeout'), PRICE, TASK);
+      expect(r.failure).toEqual({ category: 'timeout', evidence: { rule: 2, category: 'timeout', detail: 'exit_reason is timeout: the runner stopped the trial' } });
+      expect(ingest(doneResult(spec, {}, 'max_steps'), PRICE, TASK).failure?.category).toBe('step_exhaustion');
+    });
+
+    it('a plain wrong answer is wrong_answer and names the failed grader', () => {
+      const bad = doneResult(spec, { passed: false });
+      bad.grader_results[0].passed = false;
+      const r = ingest(bad, PRICE, TASK);
+      expect(r.failure).toMatchObject({ category: 'wrong_answer', evidence: { rule: 10, grader_index: 0 } });
+    });
+
+    it('the task context reaches the rules: a seeded memory task that ignored the memory is memory_ignored', () => {
+      const bad = doneResult(spec, { passed: false });
+      bad.grader_results[0].passed = false;
+      bad.grader_results[0].details = { expected: 'Marco', extracted: 'Priya' };
+      bad.trace!.memory_initial = { 'MEMORY.md': 'ingest is owned by Marco' };
+      bad.trace!.final_response = 'FINAL: Priya';
+      bad.trace!.events.push({ seq: 7, t_ms: 7, kind: 'memory_read', file: 'MEMORY.md', content: 'x', loaded_by: 'harness' });
+      const seeded: FailureTask = { taskCategory: 'memory_dependent', taskFixtureDir: null, memoryMode: 'seeded' };
+      expect(ingest(bad, PRICE, seeded).failure).toMatchObject({ category: 'memory_ignored', evidence: { rule: 9, event_seq: 7 } });
+      expect(ingest(bad, PRICE, { ...seeded, memoryMode: 'off' }).failure?.category).toBe('wrong_answer');
+    });
+
+    it('a passed result and an errored result have no category', () => {
+      expect(ingest(doneResult(spec), PRICE, TASK).failure).toBeNull();
+      expect(ingest(doneResult(spec), PRICE).failure).toBeNull();
+      expect(ingest(erroredResult('worker_crash', 'x'), PRICE, TASK).failure).toBeNull();
+    });
+
+    it('refuses a failed done result when the task context is missing, rather than guessing', () => {
+      expect(() => ingest(doneResult(spec, {}, 'timeout'), PRICE)).toThrow(IngestError);
+      expect(() => ingest(doneResult(spec, {}, 'timeout'), PRICE)).toThrow(/task context/);
+    });
   });
 
   it('maps an errored result to a class and a message, with no cost and no trace', () => {

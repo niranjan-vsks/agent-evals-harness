@@ -189,6 +189,8 @@ pre-registration is that the prediction cannot be edited after seeing data.
 | rate_limit_events | int | count of `api_call` events with `http_status = 429`; default 0 |
 | error_class | enum error_class NULL | `rate_limited`, `provider_error`, `worker_crash`, `grader_error`, `config_invalid`, `backpressure`, `orphaned`, `cancelled` |
 | error_message | text NULL | |
+| failure_category | enum failure_category NULL | **D-17**: set exactly when `status = 'done' AND passed = false` (P6). The cause of the failure, assigned by pure rules over the trace and the grader results (`api/src/failures/rules.ts`), first match wins |
+| failure_evidence | jsonb NULL | set exactly when `failure_category` is: `{rule, category, detail, event_seq?, related_event_seq?, grader_index?, assertion_index?}`, the rule that matched and the trace event or grader it used |
 | started_at, ended_at | timestamptz NULL | |
 | heartbeat_at | timestamptz NULL | updated by the scheduler while running; orphan detection |
 
@@ -322,6 +324,8 @@ error_class       rate_limited | provider_error | worker_crash | grader_error | 
 attempt_result    done | errored | orphaned | cancelled
 grader_type       exact_match | file_state | unit_test | trace_check | llm_judge
 judge_policy      trusted | flagged | excluded
+failure_category  step_exhaustion | timeout | hallucinated_tool_args | wrong_tool | tool_error_unrecovered |
+                  no_final_answer | gave_up_early | grader_disagreement | memory_ignored | wrong_answer   (rule order)
 ```
 
 There is deliberately no `score` float on `trial`, no `simulated` or `manual` origin, and
@@ -349,6 +353,7 @@ no `skipped` trial status. A trial is scored, errored, cancelled or not yet run.
 | D-14 | trial.passed is AND of graders | grader_result |
 | D-15 | labelling export is blind | judge_label |
 | D-16 | unvalidated judge is excluded | judge_validation |
+| D-17 | `failure_category` (and its evidence) set iff done and failed | trial |
 
 ---
 
@@ -361,7 +366,7 @@ grader_results), comparison_runs[]}`; traces excluded by default, included with
 `GET /experiments/:id/export.csv`: 1 row per trial:
 `trial_id, config_id, config_name, task_id, task_category, trial_index, status, passed,
 exit_reason, steps, input_tokens, output_tokens, cost_usd, latency_ms, rate_limit_events,
-error_class`.
+error_class, failure_category`.
 
 `GET /experiments/:id/compare.csv?a=&b=`: 1 row per task: `task_id, category, n_a, n_b,
 rate_a, rate_b, delta, ci_low, ci_high, verdict`, plus a final `__aggregate__` row.

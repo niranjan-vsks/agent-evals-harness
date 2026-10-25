@@ -19,7 +19,8 @@
     "tasks:lint": "ts-node --transpile-only src/tasks/lint-cli.ts",
     "tasks:sync": "node dist/tasks/sync-cli.js",
     "judge:sample": "node dist/judge/sample-cli.js",
-    "judge:kappa": "node dist/judge/kappa-cli.js"
+    "judge:kappa": "node dist/judge/kappa-cli.js",
+    "failures:backfill": "node dist/failures/backfill-cli.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

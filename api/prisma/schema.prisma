@@ -101,6 +101,21 @@ enum JudgePolicy {
   @@map("judge_policy")
 }
 
+enum FailureCategory {
+  step_exhaustion
+  timeout
+  hallucinated_tool_args
+  wrong_tool
+  tool_error_unrecovered
+  no_final_answer
+  gave_up_early
+  grader_disagreement
+  memory_ignored
+  wrong_answer
+
+  @@map("failure_category")
+}
+
 // ---------------------------------------------------------------- 2.1 model
 
 model Model {
@@ -271,6 +286,9 @@ model Trial {
   startedAt       DateTime?   @map("started_at") @db.Timestamptz(6)
   endedAt         DateTime?   @map("ended_at") @db.Timestamptz(6)
   heartbeatAt     DateTime?   @map("heartbeat_at") @db.Timestamptz(6)
+  // P6: set exactly when status = done and passed = false (CHECK in 0003_failure_category). The evidence is the matched rule and the event or grader it used.
+  failureCategory FailureCategory? @map("failure_category")
+  failureEvidence Json?            @map("failure_evidence")
 
   experiment Experiment      @relation(fields: [experimentId], references: [id])
   config     Config          @relation(fields: [configId], references: [id])

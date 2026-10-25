@@ -7,6 +7,7 @@
  * D-11 and D-13 shapes, and the trace size limit.
  */
 import { Prisma } from '../generated/prisma/client';
+import { Categorized, categorize } from '../failures/rules';
 import { ErrorClass, ExitReason, GraderResultJson, TraceEventJson, TrialResult } from '../worker-client/types';
 
 export const MAX_TRACE_BYTES = 5 * 1024 * 1024;
@@ -29,6 +30,13 @@ export class IngestError extends Error {}
 export interface PriceSnapshot {
   input_price_per_mtok: number;
   output_price_per_mtok: number;
+}
+
+/** What the failure rules need to know about the task and the config (P6 card section 4); the trace and graders come from the result. */
+export interface FailureTask {
+  taskCategory: string;
+  taskFixtureDir: string | null;
+  memoryMode: 'off' | 'seeded';
 }
 
 export interface IngestedTrial {
@@ -60,6 +68,8 @@ export interface IngestedTrial {
   } | null;
   graders: GraderResultJson[];
   partialTrace: TraceEventJson[] | null;
+  /** Set exactly when the trial is done and failed (the CHECK of 0003_failure_category). Judge labels cannot exist yet, so rule 8 waits for the backfill. */
+  failure: Categorized | null;
 }
 
 /** tokens x USD per million tokens, to the 6 decimal places the column holds. */
@@ -92,7 +102,11 @@ export function erroredResult(errorClass: ErrorClass, message: string, partial: 
   };
 }
 
-export function ingest(result: TrialResult, price: PriceSnapshot): IngestedTrial {
+/**
+ * `task` is needed only for a done result that failed: the failure rules read the task category, its fixture and the config's
+ * memory mode. A caller that omits it for such a result is a programming error and is refused loudly rather than guessed at.
+ */
+export function ingest(result: TrialResult, price: PriceSnapshot, task?: FailureTask): IngestedTrial {
   if (result.status === 'errored') {
     if (!result.error_class || !ERROR_CLASSES.includes(result.error_class)) {
       throw new IngestError(`errored result without a valid error_class (D-13): ${String(result.error_class)}`);
@@ -116,6 +130,7 @@ export function ingest(result: TrialResult, price: PriceSnapshot): IngestedTrial
       trace: null,
       graders: [],
       partialTrace: result.partial_trace,
+      failure: null,
     };
   }
 
@@ -139,6 +154,12 @@ export function ingest(result: TrialResult, price: PriceSnapshot): IngestedTrial
 
   if (Buffer.byteLength(JSON.stringify(trace.events), 'utf8') > MAX_TRACE_BYTES) {
     throw new IngestError(`trace is larger than ${MAX_TRACE_BYTES} bytes`);
+  }
+
+  let failure: Categorized | null = null;
+  if (!result.passed) {
+    if (!task) throw new IngestError('a failed done result needs the task context to be categorized (P6)');
+    failure = categorizeFailure(result, task);
   }
 
   const u = outcome.usage;
@@ -172,5 +193,24 @@ export function ingest(result: TrialResult, price: PriceSnapshot): IngestedTrial
     },
     graders: result.grader_results,
     partialTrace: null,
+    failure,
   };
+}
+
+/**
+ * The rules are total over JSON-shaped input, so this should never throw; if one ever does, a paid and graded trial must not be
+ * lost to it. It is stored as wrong_answer with the error in the evidence, which the backfill replaces once the rule is fixed.
+ */
+function categorizeFailure(result: TrialResult, task: FailureTask): Categorized {
+  const { outcome, trace } = result;
+  try {
+    return categorize(
+      { exitReason: outcome!.exit_reason, steps: outcome!.steps, taskCategory: task.taskCategory, taskFixtureDir: task.taskFixtureDir, memoryMode: task.memoryMode },
+      { events: trace!.events, finalResponse: trace!.final_response, memoryInitial: trace!.memory_initial },
+      result.grader_results,
+      [],
+    );
+  } catch (e) {
+    return { category: 'wrong_answer', evidence: { rule: 10, category: 'wrong_answer', detail: `the failure rules raised: ${(e as Error).message}` } };
+  }
 }

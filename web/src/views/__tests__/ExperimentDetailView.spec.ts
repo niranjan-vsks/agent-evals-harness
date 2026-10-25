@@ -63,6 +63,8 @@ function trial(over: Partial<TrialRow> & { id: string }): TrialRow {
     rate_limit_events: 0,
     error_class: null,
     error_message: null,
+    failure_category: null,
+    failure_evidence: null,
     started_at: null,
     ended_at: null,
     ...over,
