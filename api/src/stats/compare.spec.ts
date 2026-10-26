@@ -640,7 +640,7 @@ describe('payload shape (DESIGN 9.6)', () => {
       'rate_limit_affected_trials', 'judge_policy_applied', 'judge_excluded_tasks', 'aggregate', 'by_category', 'sign_test', 'mcnemar',
       'per_task', 'cost', 'latency_ms', 'tokens', 'stats_version',
     ];
-    const additions = ['ci_method', 'judge_confidence', 'judge', 'n_unfinished', 'unpaired_tasks', 'mcnemar_omitted', 'failures'];
+    const additions = ['ci_method', 'judge_confidence', 'judge', 'n_unfinished', 'unpaired_tasks', 'mcnemar_omitted', 'failures', 'failures_judge_excluded'];
     expect(Object.keys(out).sort()).toEqual([...design, ...additions].sort());
     expect(Object.keys(out.aggregate).sort()).toEqual(
       ['p_a', 'p_b', 'delta', 'ci_low', 'ci_high', 'verdict', 'min_detectable', 'resamples', 'seed'].sort(),
@@ -658,7 +658,7 @@ describe('payload shape (DESIGN 9.6)', () => {
       top: [
         'experiment_id', 'config_a', 'config_b', 'axis', 'n_tasks', 'n_trials_per_task', 'n_scored', 'n_excluded', 'n_unfinished', 'reliability',
         'rate_limit_affected_trials', 'judge_policy_applied', 'judge_confidence', 'judge', 'judge_excluded_tasks', 'unpaired_tasks', 'ci_method',
-        'aggregate', 'by_category', 'sign_test', 'mcnemar', 'mcnemar_omitted', 'per_task', 'failures', 'cost', 'latency_ms', 'tokens', 'stats_version',
+        'aggregate', 'by_category', 'sign_test', 'mcnemar', 'mcnemar_omitted', 'per_task', 'failures', 'failures_judge_excluded', 'cost', 'latency_ms', 'tokens', 'stats_version',
       ],
       per_task: [
         'task_id', 'category', 'n_a', 'n_b', 'rate_a', 'rate_b', 'delta', 'ci_low', 'ci_high', 'verdict', 'direction_only', 'judge_excluded',
@@ -803,23 +803,46 @@ describe('failure categories (P6)', () => {
     expect(out.failures.a).toEqual({ ...zero, timeout: 1 });
   });
 
-  it('counts only the tasks of the headline: a judge-withheld task and an unpaired task are left out, their per-task rows keep the category', () => {
+  describe('which failed trials are counted (audit D-5)', () => {
     const tasks = [task('t1'), task('j1', 'neutral_judged', true), task('t3')];
-    const out = compare(
-      input(
-        [
-          failed(A.id, 't1', 0, 'wrong_tool_usage'), failed(A.id, 't1', 1, 'wrong_tool_usage'), ...cell(B.id, 't1', [true, true]),
-          failed(A.id, 'j1', 0, 'grader_disagreement'), failed(A.id, 'j1', 1, 'grader_disagreement'), ...cell(B.id, 'j1', [true, true]),
-          failed(A.id, 't3', 0, 'timeout'), // B has no scored trial for t3: unpaired
-        ],
-        tasks,
-      ),
-      opts({ judge: { policy: 'excluded', modelId: 'j', promptHash: 'h', kappa: null } }),
-    );
-    expect(out.failures.a).toEqual({ ...zero, wrong_tool_usage: 2 });
-    const j = out.per_task.find((r) => r.task_id === 'j1')!;
-    expect([j.judge_excluded, j.failure_category_a, j.failure_category_b]).toEqual([true, 'grader_disagreement', null]);
-    expect(out.per_task.find((r) => r.task_id === 't3')).toBeUndefined(); // unpaired: no per-task row
+    const trials = [
+      failed(A.id, 't1', 0, 'wrong_tool_usage'), failed(A.id, 't1', 1, 'wrong_tool_usage'), ...cell(B.id, 't1', [true, true]),
+      failed(A.id, 'j1', 0, 'judge_criteria_unmet'), failed(A.id, 'j1', 1, 'judge_criteria_unmet'), failed(B.id, 'j1', 0, 'judge_criteria_unmet'), trial(B.id, 'j1', 1),
+      failed(A.id, 't3', 0, 'timeout'), // B has no scored trial for t3: unpaired
+    ];
+    const policy = (p: 'trusted' | 'flagged' | 'excluded') => opts({ judge: { policy: p, modelId: 'j', promptHash: 'h', kappa: null } });
+
+    it('under policy excluded the failures of a judged task are only in failures_judge_excluded; the unpaired task is still counted in failures', () => {
+      const out = compare(input(trials, tasks), policy('excluded'));
+      expect(out.failures.a).toEqual({ ...zero, wrong_tool_usage: 2, timeout: 1 });
+      expect(out.failures.b).toEqual(zero);
+      expect(out.failures_judge_excluded?.a).toEqual({ ...zero, judge_criteria_unmet: 2 });
+      expect(out.failures_judge_excluded?.b).toEqual({ ...zero, judge_criteria_unmet: 1 });
+      expect(out.failures_judge_excluded?.uncategorized).toEqual({ a: 0, b: 0 });
+      expect(Object.keys(out.failures_judge_excluded!.a)).toEqual(Object.keys(zero));
+      // the headline is untouched: only t1 is scored, j1 stays a withheld per-task row, t3 has no row
+      expect(out.n_scored).toBe(4);
+      expect(out.judge_excluded_tasks).toEqual(['j1']);
+      const j = out.per_task.find((r) => r.task_id === 'j1')!;
+      expect([j.judge_excluded, j.failure_category_a, j.failure_category_b]).toEqual([true, 'judge_criteria_unmet', 'judge_criteria_unmet']);
+      expect(out.per_task.find((r) => r.task_id === 't3')).toBeUndefined(); // unpaired: no per-task row
+    });
+
+    it.each(['trusted', 'flagged'] as const)('under policy %s the judged task is in failures and failures_judge_excluded is null', (p) => {
+      const out = compare(input(trials, tasks), policy(p));
+      expect(out.failures.a).toEqual({ ...zero, wrong_tool_usage: 2, timeout: 1, judge_criteria_unmet: 2 });
+      expect(out.failures.b).toEqual({ ...zero, judge_criteria_unmet: 1 });
+      expect(out.failures_judge_excluded).toBeNull();
+    });
+
+    it('the failed trials of an unpaired task are counted whatever the policy, and an uncategorized withheld failure is counted apart', () => {
+      const out = compare(input([failed(A.id, 't3', 0, 'timeout'), failed(B.id, 't1', 0, 'step_exhaustion'), failed(A.id, 'j1', 0, null)], tasks), policy('excluded'));
+      expect(out.failures.a).toEqual({ ...zero, timeout: 1 });
+      expect(out.failures.b).toEqual({ ...zero, step_exhaustion: 1 });
+      expect(out.failures.uncategorized).toEqual({ a: 0, b: 0 });
+      expect(out.failures_judge_excluded?.uncategorized).toEqual({ a: 1, b: 0 });
+      expect(out.n_tasks).toBe(0);
+    });
   });
 
   it('gives each per-task row the commonest category of each side, the earlier rule on a tie, and null when the side never failed', () => {

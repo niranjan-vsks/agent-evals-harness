@@ -77,6 +77,70 @@ describe('GET /experiments/:id/compare and /pilot (P3 S4)', () => {
       const stored = (await get(`/experiments/${ex.id}/compare?a=${cfgA}&b=${cfgB}&persist=1`).expect(200)).body;
       const run = await prisma.comparisonRun.findUniqueOrThrow({ where: { id: stored.comparison_run_id } });
       expect((run.result as { failures: unknown }).failures).toEqual(body.failures);
+      expect(body.failures_judge_excluded).toBeNull(); // no judged task in this experiment: the policy is trusted
+      expect((run.result as { failures_judge_excluded: unknown }).failures_judge_excluded).toBeNull();
+    });
+
+    /** A on the plain task fails 'step_exhaustion', B passes; both configs fail the judged task 'judge_criteria_unmet'. */
+    async function judgedExperiment() {
+      const ex = await fx.experiment({ configIds: [cfgA, cfgB], taskIds: [PLAIN[0], JUDGED], nTrials: 1, status: 'running', seed: 7 });
+      const trials = await prisma.trial.findMany({ where: { experimentId: ex.id } });
+      const of = (cfg: string, task: string) => trials.find((t) => t.configId === cfg && t.taskId === task)!.id;
+      await cf.done(of(cfgA, PLAIN[0]), false, { failureCategory: 'step_exhaustion' });
+      await cf.done(of(cfgB, PLAIN[0]), true);
+      await cf.done(of(cfgA, JUDGED), false, { failureCategory: 'judge_criteria_unmet' });
+      await cf.done(of(cfgB, JUDGED), false, { failureCategory: 'judge_criteria_unmet' });
+      return { id: ex.id, judgedTrialIds: [of(cfgA, JUDGED), of(cfgB, JUDGED)] };
+    }
+    const compareAndStored = async (id: string) => {
+      const body = (await get(`/experiments/${id}/compare?a=${cfgA}&b=${cfgB}`).expect(200)).body;
+      const stored = (await get(`/experiments/${id}/compare?a=${cfgA}&b=${cfgB}&persist=1`).expect(200)).body;
+      const run = await prisma.comparisonRun.findUniqueOrThrow({ where: { id: stored.comparison_run_id } });
+      return { body, result: run.result as { failures: unknown; failures_judge_excluded: unknown } };
+    };
+
+    it('under the judge policy excluded the failures of the judged task are in failures_judge_excluded only, in the payload and in the stored run', async () => {
+      const { id } = await judgedExperiment(); // no judge grader rows yet: policy excluded
+      const { body, result } = await compareAndStored(id);
+      expect(body.judge_policy_applied).toBe('excluded');
+      expect(body.failures.a).toMatchObject({ step_exhaustion: 1, judge_criteria_unmet: 0 });
+      expect(body.failures.b).toMatchObject({ step_exhaustion: 0, judge_criteria_unmet: 0 });
+      expect(body.failures_judge_excluded.a).toMatchObject({ step_exhaustion: 0, judge_criteria_unmet: 1 });
+      expect(body.failures_judge_excluded.b).toMatchObject({ judge_criteria_unmet: 1 });
+      expect(Object.keys(body.failures_judge_excluded.a)).toHaveLength(12);
+      expect(body.failures_judge_excluded.uncategorized).toEqual({ a: 0, b: 0 });
+      expect(body.n_scored).toBe(2); // the headline is unchanged: only the plain task
+      expect(result.failures).toEqual(body.failures);
+      expect(result.failures_judge_excluded).toEqual(body.failures_judge_excluded);
+    });
+
+    it('under a trusted judge the judged task is in failures and failures_judge_excluded is null', async () => {
+      const { id, judgedTrialIds: judged } = await judgedExperiment();
+      const m = `cmq-judge-${tag()}`;
+      await cf.judgeRows(judged.slice(0, 1), m, 'prompt-1');
+      await cf.validation({ modelId: m, promptHash: 'prompt-1', kappa: 0.7 });
+      const { body, result } = await compareAndStored(id);
+      expect(body.judge_policy_applied).toBe('trusted');
+      expect(body.failures.a).toMatchObject({ step_exhaustion: 1, judge_criteria_unmet: 1 });
+      expect(body.failures.b).toMatchObject({ judge_criteria_unmet: 1 });
+      expect(body.failures_judge_excluded).toBeNull();
+      expect(result.failures).toEqual(body.failures);
+      expect(result.failures_judge_excluded).toBeNull();
+    });
+
+    it('the failed trials of an unpaired task are counted in failures (B has no scored trial there)', async () => {
+      const ex = await fx.experiment({ configIds: [cfgA, cfgB], taskIds: PLAIN.slice(0, 2), nTrials: 1, status: 'running', seed: 7 });
+      const trials = await prisma.trial.findMany({ where: { experimentId: ex.id } });
+      const of = (cfg: string, task: string) => trials.find((t) => t.configId === cfg && t.taskId === task)!.id;
+      await cf.done(of(cfgA, PLAIN[0]), true);
+      await cf.done(of(cfgB, PLAIN[0]), true);
+      await cf.done(of(cfgA, PLAIN[1]), false, { failureCategory: 'timeout' });
+      await cf.errored(of(cfgB, PLAIN[1]));
+      const { body, result } = await compareAndStored(ex.id);
+      expect(body.unpaired_tasks.map((u: { task_id: string }) => u.task_id)).toEqual([PLAIN[1]]);
+      expect(body.failures.a).toMatchObject({ timeout: 1 });
+      expect(body.n_scored).toBe(2);
+      expect(result.failures).toEqual(body.failures);
     });
 
     it('a trial and the trial list carry failure_category and failure_evidence', async () => {

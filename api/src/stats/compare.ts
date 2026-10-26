@@ -164,8 +164,14 @@ export interface ComparePayload {
   mcnemar: McNemarResult | null;
   mcnemar_omitted: string | null;
   per_task: PerTaskRow[];
-  /** P6. Counts the failed done trials of the tasks that entered the headline, the same trials as n_scored. */
+  /**
+   * P6. Counts every failed done trial (status done, passed false) of configs A and B, whatever the task: unpaired tasks and
+   * errored-out tasks included, so it can exceed what n_scored covers. Tasks withheld by the judge policy are in
+   * `failures_judge_excluded` instead.
+   */
   failures: FailureHistogram;
+  /** The same count for the failed trials of the tasks withheld by the judge policy `excluded`; null under any other policy. */
+  failures_judge_excluded: FailureHistogram | null;
   cost: MetricComparison;
   latency_ms: MetricComparison;
   tokens: { input: MetricComparison; output: MetricComparison };
@@ -175,6 +181,7 @@ export interface ComparePayload {
 const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 const emptyCounts = (): FailureCounts => Object.fromEntries(FAILURE_CATEGORIES.map((c) => [c, 0])) as FailureCounts;
+const emptyHistogram = (): FailureHistogram => ({ a: emptyCounts(), b: emptyCounts(), uncategorized: { a: 0, b: 0 } });
 const isFailed = (t: CompareTrial) => t.status === 'done' && t.passed === false;
 
 /** The commonest category among the failed trials; a tie goes to the category that comes first in FAILURE_CATEGORIES (the card's rule order). */
@@ -333,16 +340,16 @@ export function compare(input: CompareInput, opts: CompareOptions): ComparePaylo
     return { ...base, ci_low: lo, ci_high: hi, verdict: noiseRule(ra - rb, lo, hi), ...tail };
   });
 
-  const failures: FailureHistogram = { a: emptyCounts(), b: emptyCounts(), uncategorized: { a: 0, b: 0 } };
-  for (const p of headline) {
-    const slot = byTask.get(p.task.id)!;
-    for (const [side, ts] of [['a', slot.a], ['b', slot.b]] as const) {
-      for (const t of ts) {
-        if (!isFailed(t)) continue;
-        if (t.failureCategory) failures[side][t.failureCategory]++;
-        else failures.uncategorized[side]++;
-      }
-    }
+  // Every failed trial is a cause worth showing, paired or not; the judge-withheld tasks go in their own histogram so the
+  // largest real category (judge_criteria_unmet) does not vanish under the policy that hides those tasks from the headline.
+  const failures = emptyHistogram();
+  const failuresJudgeExcluded = excludeJudged ? emptyHistogram() : null;
+  for (const t of ours) {
+    if (!isFailed(t)) continue;
+    const hist = failuresJudgeExcluded && judgeExcluded.includes(t.taskId) ? failuresJudgeExcluded : failures;
+    const side = t.configId === idA ? 'a' : 'b';
+    if (t.failureCategory) hist[side][t.failureCategory]++;
+    else hist.uncategorized[side]++;
   }
 
   const nScored = headline.reduce((n, p) => n + p.a.length + p.b.length, 0);
@@ -415,6 +422,7 @@ export function compare(input: CompareInput, opts: CompareOptions): ComparePaylo
     mcnemar_omitted: mcOmitted,
     per_task: perTask,
     failures,
+    failures_judge_excluded: failuresJudgeExcluded,
     cost: metric((t) => t.costUsd),
     latency_ms: metric((t) => t.latencyMs),
     tokens: { input: metric((t) => t.inputTokens), output: metric((t) => t.outputTokens) },
