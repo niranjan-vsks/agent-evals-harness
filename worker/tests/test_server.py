@@ -28,6 +28,17 @@ def test_adapters_lists_the_registry_with_capabilities(client):
     assert "python" in body["worker"]
 
 
+def test_the_manifest_records_the_commit_and_image_the_worker_was_built_from(client, monkeypatch):
+    monkeypatch.setenv("WORKER_COMMIT", "abc123def")
+    monkeypatch.setenv("IMAGE_DIGEST", "sha256:feed")
+    body = client.get("/adapters").json()
+    assert body["commit"] == "abc123def" and body["worker"]["image_digest"] == "sha256:feed"
+    monkeypatch.setenv("IMAGE_DIGEST", "")  # what compose passes when nothing was exported
+    monkeypatch.setenv("WORKER_COMMIT", "unknown")  # the build arg's default
+    body = client.get("/adapters").json()
+    assert body["commit"] is None and body["worker"]["image_digest"] is None
+
+
 def test_validate_returns_adapter_reasons(client, tasks_dir):
     settings = make_spec(tasks_dir, options={"reject": True})["settings"]
     assert client.post("/adapters/fake/validate", json=settings).json() == {"errors": ["fake adapter was told to reject"]}

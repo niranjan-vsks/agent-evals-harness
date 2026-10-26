@@ -41,12 +41,18 @@ services:
       retries: 20
 
   worker:
-    build: ./worker
+    build:
+      context: ./worker
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}  # baked as the image label and WORKER_COMMIT; scripts/up.sh sets it
     env_file:
       - .env
     environment:
       TASKS_DIR: /tasks
       WORK_DIR: /work
+      # The built image's id, exported by scripts/up.sh after the build (a container cannot know it at build time). Empty when
+      # compose is run by hand: then worker_manifest.image_digest is null and worker_manifest.commit is the pin.
+      IMAGE_DIGEST: ${IMAGE_DIGEST:-}
       KEEP_TRIAL_DIRS: ${KEEP_TRIAL_DIRS:-0}
       WORKER_MAX_PARALLEL: ${WORKER_MAX_PARALLEL:-4}
     volumes:

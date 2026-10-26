@@ -55,8 +55,11 @@ def adapters() -> dict[str, Any]:
         "worker": {
             "python": sys.version.split()[0],
             "platform": platform.platform(),
-            "image_digest": os.environ.get("IMAGE_DIGEST"),
+            "image_digest": os.environ.get("IMAGE_DIGEST") or None,
         },
+        # The git commit the image was built from (compose build arg GIT_COMMIT): the pin that is always available. It is the only one
+        # when no image digest was exported (scripts/up.sh sets both).
+        "commit": None if os.environ.get("WORKER_COMMIT", "unknown") in ("", "unknown") else os.environ["WORKER_COMMIT"],
     }
 
 

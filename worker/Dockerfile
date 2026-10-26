@@ -18,6 +18,10 @@ COPY . /app/worker
 ENV PYTHONPATH=/app
 ENV WORK_DIR=/work TASKS_DIR=/tasks
 RUN mkdir -p /work /tasks
+# What the image was built from (compose passes GIT_COMMIT): the label, and WORKER_COMMIT for GET /adapters (worker_manifest.commit).
+ARG GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision=${GIT_COMMIT}
+ENV WORKER_COMMIT=${GIT_COMMIT}
 
 EXPOSE 8000
 WORKDIR /app/worker
