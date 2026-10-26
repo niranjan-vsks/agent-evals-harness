@@ -112,7 +112,7 @@ class HarnessAdapter(Protocol):
     def validate(self, settings: Settings) -> list[str]:
         """Pure. Returns a list of human-readable reasons the adapter CANNOT honor these
         settings. Empty list means every setting will be honored exactly. Called by the
-        worker's GET /adapters/{id}/validate before any trial is created (H-1)."""
+        worker's POST /adapters/{id}/validate before any trial is created (H-1)."""
 
     def prepare(self, ctx: TrialContext) -> None:
         """Writes harness-specific files under ctx.trial_dir (config files, memory seed,

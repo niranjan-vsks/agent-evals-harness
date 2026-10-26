@@ -426,6 +426,17 @@ sign of `Δ_obs`. The payload also reports `min_detectable = (CI_high − CI_low
 reader sees what size of effect this experiment could have found. The rule is applied in
 `api/src/stats/compare.ts` and tested with fixed inputs on both sides of the boundary.
 
+*Changed in build:* the rule needs an interval, and an interval needs spread. An aggregate or category
+block with fewer than `MIN_PAIRED_TASKS = 2` paired tasks keeps `p_a`, `p_b` and `delta`, has `ci_low`,
+`ci_high` and `min_detectable` null, and gets `verdict = "insufficient_data"` with a `reason` string; the
+noise rule is not applied to it. With 1 task the bootstrap interval would be the single point `[d, d]`
+and any non-zero delta would read as a win with `min_detectable` 0. From 2 tasks the percentile
+bootstrap applies as in 9.3 (for 2 or 3 tasks the interval is the min and max of the task deltas, which
+is coarse but real). The same applies to a per-task row with fewer than 2 scored trials on a side
+(`MIN_TRIALS_PER_SIDE = 2`): its interval is null and its verdict `insufficient_data`. The sign test and
+McNemar are exact and unaffected. The constant is a guard of this implementation, not a statistical
+result (STATE.md P3, Assumptions resolved).
+
 ### 9.5 Secondary tests and per-task deltas
 
 - Sign test over tasks: count tasks with `d_A > d_B` vs `d_A < d_B`, exact binomial
@@ -441,19 +452,49 @@ reader sees what size of effect this experiment could have found. The rule is ap
 
 ### 9.6 Comparison payload
 
+The shape `compare()` in `api/src/stats/compare.ts` returns (type `ComparePayload`). `null` means "not
+computable for this input"; a block never has a missing key.
+
 ```jsonc
-{"experiment_id","config_a","config_b","axis","n_tasks","n_trials_per_task","n_scored","n_excluded",
- "reliability":"complete"|"partial","rate_limit_affected_trials":int,
- "judge_policy_applied","judge_excluded_tasks":[],
- "aggregate":{"p_a","p_b","delta","ci_low","ci_high","verdict","min_detectable","resamples","seed"},
- "by_category":{"memory_dependent":{...same...},...},
+{"experiment_id",
+ "config_a":{"id","name"},"config_b":{"id","name"},"axis",
+ "n_tasks",                       // tasks that entered the headline (judge-withheld tasks are not counted)
+ "n_trials_per_task",
+ "n_scored",                      // done, graded trials of the headline tasks
+ "n_excluded",                    // errored, cancelled, or done without a verdict
+ "n_unfinished",                  // pending or running
+ "reliability":"complete"|"partial",   // partial if any trial is excluded or unfinished, or a headline task is unpaired
+ "rate_limit_affected_trials":int,
+ "judge_policy_applied":"trusted"|"flagged"|"excluded",
+ "judge_confidence":"low"|null,   // "low" under policy flagged
+ "judge":{"model_id","prompt_hash","kappa","policy"},
+ "judge_excluded_tasks":[],
+ "unpaired_tasks":[{"task_id","reason"}],   // a task with no scored trial on one side or both
+ "ci_method":"percentile",
+ "aggregate":{"p_a","p_b","delta","ci_low","ci_high","verdict","min_detectable","reason"?,"resamples","seed"},
+                                  // verdict: "noise"|"A_better"|"B_better"|"insufficient_data" (9.4)
+ "by_category":{"memory_dependent":{...aggregate fields,"n_tasks"}|null,
+                "memory_distractor":{...}|null,"neutral":{...}|null,"honesty":{...}|null},
+                                  // neutral = neutral_deterministic + neutral_judged; null when the category has no paired task
  "sign_test":{"a_wins","b_wins","ties","p_value"},
- "mcnemar":null|{...},
- "per_task":[{"task_id","category","n_a","n_b","rate_a","rate_b","delta","ci_low","ci_high","verdict"}],
- "cost":{"a":{"mean","ci_low","ci_high"},"b":{...},"delta_ci":[..]},
+ "mcnemar":null|{"a_only","b_only","both_pass","both_fail","n_pairs","n_discordant","p_value"},
+ "mcnemar_omitted":null|"why",    // set whenever mcnemar is null
+ "per_task":[{"task_id","category","n_a","n_b","rate_a","rate_b","delta","ci_low","ci_high",
+              "verdict","direction_only":true,"judge_excluded":bool,
+              "failure_category_a","failure_category_b"}],
+                                  // judge-excluded tasks keep a row, flagged, and are outside every headline figure
+ "failures":{"a":{<category>:count,...},"b":{...},"uncategorized":{"a","b"}},   // failed trials of the headline tasks (DATA_MODEL 3)
+ "cost":{"a":{"mean","ci_low","ci_high"},"b":{...},"delta_ci":[lo,hi]|null},
  "latency_ms":{...},"tokens":{"input":{...},"output":{...}},
  "stats_version"}
 ```
+
+*Changed in build:* compared with the first draft of this section the payload gained `n_unfinished`,
+`judge_confidence`, `judge`, `unpaired_tasks`, `ci_method`, `mcnemar_omitted`, `failures` (P6), the
+`direction_only`, `judge_excluded` and `failure_category_a/_b` fields of `per_task`, `reason` and the
+`insufficient_data` verdict (9.4), `n_tasks` inside each category block, and the `{id, name}` form of
+`config_a` and `config_b`. `stats_version` stayed `1.0.0` while the payload grew, so a stored
+`comparison_run` from before P6 has no `failures` key and one from after it does.
 
 ### 9.7 How N was chosen
 
@@ -483,6 +524,15 @@ the smallest N with `h(N) ≤ 0.15`, capped at 8 by budget. **The pilot endpoint
 variances and projected widths only; it does not return the delta**, so N is chosen
 without looking at the answer. The full run extends the same experiment (D-9), reusing
 the 3 pilot trials.
+
+*Changed in build:* `pilot.ts` does not search only {3, 5, 8}. It tries every integer N from `n_pilot`
+up to the cap of 8 and recommends the first one with `h(N) ≤ 0.15`; if none qualifies it recommends 8
+and sets `capped: true`. It recommends nothing when the pilot is not ready (a cell with fewer than 2 done
+trials) or when `n_pilot` is already above 8. The projections it lists are N = 3, 5, 8 plus the
+recommended N when that is another value, so the output always shows the width behind its own number.
+The payload also gives `half_width_observed_without_judged`, the width over the tasks that are not
+judge-graded, for the case where policy `excluded` removes them (8.4); it does not change the
+recommendation. In the primary run the integer search and the {3, 5, 8} rule both give N = 3 (10.4).
 
 Pre-registered expectation for the primary experiment (section 10): on the 6
 memory-dependent tasks `h(5) ≈ 1.96 · sqrt(0.5 / 30) = 0.253` with an expected delta
@@ -698,12 +748,37 @@ Sign test: A won 3 (`det-07`, `hon-01`, `mem-05`), B won 0, 14 tied, p = 0.25. T
 
 Spend of the secondary: 0.0460 USD for the candidate trials at the platform's accounting (a floor, see above), 0.0150 USD for the judge, 0.0610 USD in all; with cached tokens at full price the candidates are at most 0.181 USD (0.196 with the judge); Hermes's own estimate for the candidates is 0.0820 USD. Both experiments together: 0.139 USD at the platform's accounting.
 
+### 10.6 What the committed results are, and are not (draft)
+
+**Status: draft**, from the audit of 2026-10-26 (`audit/AUDIT_REPORT.md`, section D rows 7 to 9). The files in
+`experiments/results/` (both experiments: JSON export, trials CSV, compare CSV, the database dump) are the
+record of the runs in 10.4 and 10.5. They were produced on an external compose stack (`p5run`) built
+from commit `cb7a46d`, and they predate two later changes:
+
+- **P6 (failure categories).** The committed trials CSVs have 16 columns, not the 17 of the current export
+  (no `failure_category`), the trials in the JSON exports carry no `failure_category`, and the stored
+  `comparison_runs` have no `failures` key in the payload (9.6; `stats_version` is `1.0.0` on both sides of
+  that change). The categories were backfilled into the `p5run` database afterwards (STATE.md, P6
+  follow-up); the committed files were not regenerated.
+- **The isolation fix (commit `6386959`, 13.6).** Both runs executed with the trial's `spec.json` one level
+  above the workspace. The primary run read it in 0 of 132 trials (10.4, data quality). The secondary run
+  read it in 7 of 66 `claude-haiku-5.5` trials (13.13), so that arm's results on the tasks whose answer is
+  in `spec.json` are unreliable and were not repeated.
+
+Consequences for a reader. The numbers in 10.4 and 10.5 come from the committed exports and
+`experiments/p5/analyze.mjs` and can be checked against them without running anything. They cannot be
+reproduced by `docker compose up` on this tree alone: the repo has no import endpoint for an export, and
+the code that produced the results is not the code at `HEAD`. Re-running the experiment on `HEAD` would
+produce trials with the isolation fix and with categories at ingest, and a `comparison_run` with `failures`.
+The `p5run` stack and a fresh stack are different databases; the default stack holds neither experiment.
+
 ---
 
 ## 11. Contract findings
 
 Every place ADAPTERS.md did not match what building against it required, with the reason.
-ADAPTERS.md itself was not edited. Entries 1 to 9 come from the Hermes adapter (P1); entries
+ADAPTERS.md itself was not edited during the build; after the audit of 2026-10-26 it was edited to describe the
+code as built (sections 0, 2, 3 and 6, each marked "changed in build" or as a new row). Entries 1 to 9 come from the Hermes adapter (P1); entries
 10 to 16 come from the minimal loop (P2).
 
 No invariant H-1 to H-11, M-1, M-3, M-4 or R-1 to R-8 had to be weakened, for either adapter.
@@ -866,6 +941,13 @@ become results, not exceptions).
     and ignores nothing, and `validate` cannot tell, because it sees settings and not the model, so
     it also accepts the option for a model that is not behind OpenRouter. The API sorts and
     de-duplicates the list before hashing.
+19. **`memory_write.content_after` is read when the write happens, not by `collect_memory()`.**
+    ADAPTERS 3 says the Hermes adapter fills `content_after` from `collect_memory()`. The adapter
+    reads `hermes_home/memories/<file>` in its `post_tool_call` hook, at the moment the `memory` tool
+    returns (`hermes/adapter.py`, `post_tool_call`), so the event shows the file as that write left
+    it, and a later write to the same file has its own event with its own content. `content_after` is
+    `null` if the file does not exist at that moment. `collect_memory()` still reads only from disk
+    after the run (H-8) and gives the final state; the two can differ when a trial writes more than once.
 
 Not findings about ADAPTERS.md but decisions it left open, recorded here so P2 inherits them:
 
@@ -1046,8 +1128,16 @@ Where the platform's conclusions should not be trusted, and why.
    same container, so an agent that went looking could read them. No prompt points there and the
    runner keeps them out of the workspace (R-5, R-7), but the only protection against a search of
    the filesystem is that the trace would show it: a `tool_call` whose arguments name `/tasks`.
-   The same holds for the trial's own directory: `../spec.json` (which holds the task's graders)
-   and, for the minimal loop, `../memory/` (the seed) are one level above the workspace. The minimal
+   *Changed in build (R-10, after the secondary run):* the trial's `spec.json` (the task's graders) is
+   no longer readable. The runner writes it to `<work_dir>/specs/<trial_id>-<attempt>.json`, outside every
+   trial directory; the child reads it and deletes it before `prepare()` runs, and refuses to start the
+   agent if it cannot delete it or if the trial directory holds anything besides `workspace`, `out`,
+   `home`, `tmp` and the harness's own home. What an agent can still reach: `/tasks`, the read-only mount
+   with every task JSON (the `exact_match` answers and `trace_check` patterns) and the `_hidden/` grader
+   files; for the minimal loop, `../memory/` (the seed) one level above the workspace; for Hermes,
+   `../hermes_home/`. Closing `/tasks` needs real confinement (below) and is the open audit fix; until it
+   lands the claim is "the one path an agent had a reason to try is closed", not "the graders are
+   unreadable". The exposure in the committed secondary run (13.13) happened before this fix. The minimal
    loop's shell drops environment variables whose names end `_KEY`, `_TOKEN` or `_SECRET`; Hermes's
    terminal drops its own provider blocklist (`tools/environments/local_env_policy.py`, which
    includes `OPENROUTER_API_KEY`) and passes every other worker variable, so a credential under a
@@ -1091,6 +1181,9 @@ Where the platform's conclusions should not be trusted, and why.
     model makes the memory-off arm of any experiment unreliable on the tasks whose answer is in
     those files until the shell is confined (a separate uid or a mount namespace). Memory-dependent
     tasks and `trace_check` tasks are the exposed ones.
+    *Changed in build:* the `spec.json` path is closed since commit `6386959` (13.6, R-10); the run
+    described here predates it and was not repeated, so its `claude-haiku-5.5` results on those tasks stay
+    unreliable. `/tasks` is still readable.
 14. **Cached prompt tokens are priced at 0.** When the provider reports `cache_read_tokens`,
     `input_tokens` excludes them and `cost_usd` charges nothing for them (STATE.md P1, found 4).
     In the primary run no trial had a cache read; in the secondary run both configs did

@@ -5,7 +5,7 @@ question with an interval: does config A beat config B, or is the difference noi
 
 - 2 harnesses behind one adapter contract: Hermes Agent (pinned commit, not vendored) and a small tool-calling loop (`minimal_loop`).
 - 2 models, reached through OpenRouter only, as rows of a registry file.
-- 22 tasks with 5 grader types (`exact_match`, `file_state`, `unit_test`, `trace_check`, `llm_judge`), the judge checked against 30 human labels.
+- 22 tasks with 5 grader types (`exact_match`, `file_state`, `unit_test`, `trace_check`, `llm_judge`); the judge's validation protocol is in DESIGN 8 (30 human labels, not yet made, so judge-graded tasks stay out of the headline).
 - A paired bootstrap over tasks for the headline number, an exact sign test, McNemar when N = 1, and a pilot that picks N from the observed variance without showing the delta.
 - A Vue 3 UI to create configs and experiments, compare them, and open any trial down to the event.
 

@@ -23,9 +23,12 @@ worker/
   runner.py                subprocess runner: timeouts, kill, trace assembly (R-n invariants)
   graders/                 grading, called by the runner after the adapter returns
 api/
-  src/adapters/            TypeScript mirror of ModelSpec and the worker manifest types only.
-                           The API never imports harness code.
+  src/worker-client/       types.ts: TypeScript mirror of ModelSpec, the worker manifest, TrialSpec and
+                           TrialResult; worker-client.ts: the HTTP client. The API never imports harness code.
 ```
+
+*Changed in build:* the draft named this directory `api/src/adapters/`; it is `api/src/worker-client/`.
+Nothing else about the split changed.
 
 The control plane (NestJS) never calls an adapter. It sends a `TrialSpec` to the worker
 over HTTP (`POST /trials/run`), the worker's `runner.py` resolves the adapter from
@@ -177,7 +180,7 @@ class HarnessAdapter(Protocol):
     def validate(self, settings: Settings) -> list[str]:
         """Pure. Returns a list of human-readable reasons the adapter CANNOT honor these
         settings. Empty list means every setting will be honored exactly. Called by the
-        worker's GET /adapters/{id}/validate before any trial is created (H-1)."""
+        worker's POST /adapters/{id}/validate before any trial is created (H-1)."""
 
     def prepare(self, ctx: TrialContext) -> None:
         """Writes harness-specific files under ctx.trial_dir (config files, memory seed,
@@ -192,6 +195,10 @@ class HarnessAdapter(Protocol):
         """Reads memory files from the trial dir after run(). Called even after a timeout
         kill, so it must not depend on in-process state (H-8)."""
 ```
+
+*Changed in build:* the worker serves validation as `POST /adapters/{id}/validate`, because the settings
+travel in the request body. The draft said `GET` (DESIGN 11.1). The `validate()` docstring above and the
+one in `worker/adapters/base.py` now say `POST`.
 
 ### Harness invariants
 
@@ -335,7 +342,7 @@ Result mapping (`agent/turn_finalizer.py:687-721`, token keys at :33-37):
 | `system_prompt` | first element of `result["messages"]` with role `system` if present; ASSUMPTION A-6: Hermes includes the system message in `messages`. If not, reversible default: `None` with note `"hermes does not expose the system prompt in run_conversation output"` and `capabilities.system_prompt_capture = False`. |
 | `skills_invoked` | names from `skill_view` tool calls in `result["messages"]`, plus `settings.skills.preload` |
 | `message` events | every entry of `result["messages"]` in order, emitted after the run (tool call and result events were emitted live via callbacks) |
-| `memory_write` events | every `memory` tool call in `result["messages"]`, with `content_after` read from disk by `collect_memory()` |
+| `memory_write` events | every `memory` tool call in `result["messages"]`, with `content_after` read from disk by `collect_memory()` (changed in build: read in the `post_tool_call` hook when the write happens, DESIGN 11.19) |
 
 `Capabilities` for Hermes: `tools={shell, files}`, `memory_modes={off, seeded}`,
 `memory_writes=True`, `skills=True`, `temperature=True` (via `request_overrides`),
@@ -447,6 +454,7 @@ also 1 env var name in `.env.example`. No code.
 | R-7 | Grading runs after `collect_memory()` and in the same child process while `workspace_dir` still exists. Hidden test files for `unit_test` graders are copied in only after `run()` returns. | File-state and unit-test graders need the workspace; the agent must not see hidden tests. | Test: the agent's `list_dir` during the run never shows the hidden test file. |
 | R-8 | `trial_dir` is deleted after the result is returned unless `KEEP_TRIAL_DIRS=1`. | Disk hygiene; also prevents a later trial from finding the old directory. | Test. |
 | R-9 | Concurrency is bounded by the API (`MAX_CONCURRENT_TRIALS`, default 2). The worker rejects a request above its own `WORKER_MAX_PARALLEL` with HTTP 429, which the API treats as retryable backpressure. | Shared provider rate limits across concurrent trials are a leak channel; the bound makes it measurable. | Test. |
+| R-10 | The trial's spec (it holds the task's graders) is never under `trial_dir`. The runner writes it to `<work_dir>/specs/<trial_id>-<attempt>.json`; the child reads it and deletes it before `prepare()` and fails closed (`worker_crash`) if it cannot delete it; before `prepare()` the child also refuses to run if `trial_dir` holds anything besides `workspace`, `out`, `home` and `tmp`. | Added after the secondary experiment: 7 of 66 `claude-haiku-5.5` trials opened `../spec.json`. Does not cover `/tasks` (DESIGN 13.6). | `test_spec_isolation.py`; `test_adapter_conformance.py::test_r10_an_agent_that_goes_looking_for_the_graders_finds_none` (both adapters). |
 
 ---
 

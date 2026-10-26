@@ -54,6 +54,55 @@ the isolated stack they ran on). P3 is done (its section is at the end of this f
 
 ---
 
+## Audit fixes (docs): documents now describe the code as built (2026-10-26)
+
+Source: `audit/AUDIT_REPORT.md` B.2, B.3, B.5 and H row 10. Documents only; the one code-file edit is a docstring. No test was affected and none was run.
+
+### Shipped
+
+- **DESIGN.md.** 9.4 (`MIN_PAIRED_TASKS = 2`, `MIN_TRIALS_PER_SIDE = 2`, verdict `insufficient_data`); 9.6 (the payload as `compare.ts` returns it, with the fields the first draft lacked listed in a "changed in build" note, and the fact that `stats_version` stayed `1.0.0` while it grew); 9.7 (the pilot tries every integer from `n_pilot` to 8; capped, not-ready and above-cap cases); 13.6 (`spec.json` is no longer readable, R-10; what an agent can still reach: `/tasks`, `_hidden/`, `../memory/` for the minimal loop, `../hermes_home/` for Hermes; "the one path an agent had a reason to try is closed", not "the graders are unreadable"); 13.13 (a note that the described run predates the fix); 11.19 (new entry: `content_after` is read in the `post_tool_call` hook at write time, not by `collect_memory()`); the 11 preamble (ADAPTERS.md was edited after the audit); 10.6 (new draft: the committed exports predate P6 and the isolation fix, and cannot be reproduced from this tree alone).
+- **ADAPTERS.md.** Section 0 (`api/src/worker-client/`, not `api/src/adapters/`); section 2 (`POST` validate, in the docstring and in a note); section 3 (`content_after` row points to DESIGN 11.19); section 6 (new row R-10, with the tests that pin it).
+- **`worker/adapters/base.py`.** The `validate()` docstring says `POST`. Comment text only; `py_compile` passes.
+- **Cards.** A "Superseded by the build in these points" block at the top of `cards/P1.md` (§10 question 5, Node 24), `cards/P2.md` (§4 `task-schema.ts` not `schema.json`; §6 `_hidden/`, `lint-cli.ts`, judge files under `api/src/judge/`, 413 lines not 150) and `cards/P6.md` (§4: 12 rules, `wrong_tool_usage`, rule 5 reads the output).
+- **README.md.** The judge sentence now says "validation protocol is in DESIGN 8" and that the 30 labels are not made. To flip it after the labels and `npm run judge:kappa`, replace that clause with "the judge is validated against 30 human labels, kappa reported in DESIGN 10.4" and fill 10.4 first.
+
+### Verified
+
+| Check | Result |
+|---|---|
+| Each changed statement against the code | read against `compare.ts` (payload type, `MIN_PAIRED_TASKS`, `MIN_TRIALS_PER_SIDE`, `pairedBlock`), `pilot.ts` (the loop from `nPilot` to `N_CAP`, `capped`, `recommendationReason`), `runner.py` (`_spec_path`), `run_one.py` (`consume_spec`, `assert_trial_dir_holds_no_extras`), `hermes/adapter.py` (`post_tool_call`), `rules.ts` (`FAILURE_CATEGORIES`, `rule:` numbers 1 to 12), `api/src/worker-client/`, `api/src/tasks/`, `api/src/judge/`, `tasks/fixtures/*/_hidden` |
+| Test names cited in R-10 | `grep "def test_r10"` finds them in `test_spec_isolation.py` (6) and `test_adapter_conformance.py` (1) |
+| `py_compile worker/adapters/base.py` | passes |
+| Stale text left | `grep "GET /adapters/{id}/validate"` hits only DESIGN 11.1, which quotes the old text on purpose; `../spec.json` appears only in the historical checks of 10.4 and 10.5 and in R-10 |
+| Em-dashes in added lines | 0 (`git diff -U0`) |
+| Worker, API and web suites | not run (no code changed) |
+
+### Cut on purpose
+
+- Nothing in code. Not touched although the audit lists them: R39 (the worker manifest never records an image digest; compose does not set `IMAGE_DIGEST`), the `STATS_VERSION` bump for the payload that grew (audit section D, row 1), the fallback rule number in `ingest.ts` (audit section D, row 3), closing `/tasks`.
+- `DESIGN.md` 10.4 and 12.2 were not changed; the numbers there are not in dispute.
+
+### Found but not fixed
+
+1. **13.6 describes a gap that is still open.** `/tasks` is readable by the agent's shell. The text says so and says what is closed; the audit code fix (confinement) has to land before it can say more.
+2. **The README judge sentence is a placeholder** until `labels.jsonl` exists. If the labels are never made, the sentence stays as it is; it is true as written.
+3. **`cards/P6.md` §1 still says `judge_label` rows exist for 30 trials.** They do not (0 rows, no `labels.jsonl`). It was outside the points the audit asked to be fixed, so it is not in the P6 note.
+4. **ADAPTERS.md header says "FROZEN" and silent edits are a defect.** The edits carry "changed in build" notes or are a new row, and DESIGN 11 says so; the header was not reworded.
+5. **STATE.md older sections still say the documents are stale** (P5 follow-up: Isolation fix, Found 3). This section supersedes them; they were not rewritten.
+6. The new section sits first after section 0, because this file is written newest first, not at the end.
+
+### Assumptions resolved
+
+- No A-id. Reading choice: "full payload shape as compare.ts returns it" was taken as the `ComparePayload` type in `compare.ts`, with `AggregateBlock`, `CategoryBlock`, `PerTaskRow`, `FailureHistogram`, `MetricComparison` and the two test result types spelled out in the example.
+
+### Next action
+
+1. Nothing pending for this task.
+2. The code fixes of the audit (confinement of `/tasks`, `STATS_VERSION`, image digest, `ingest.ts` fallback rule number, the 17 column export regenerated) are separate; when each lands, drop its caveat from 13.6, 9.6 and 10.6.
+3. After the 30 labels: run `npm run judge:kappa`, fill 10.4, then change the README judge sentence as described under Shipped.
+
+---
+
 ## P7: UI visual layer (polish only, no logic)
 
 Built on the same Windows 11 host in the OneDrive checkout; Vitest, `vue-tsc` and `vite build` ran on a mirror of `web/` at `C:\hx\p7\web` (robocopy, `node_modules` a junction to `C:\hx\p6\wt\web\node_modules`, same `package-lock.json`). Before any code the 4 design skills of card section 2 were loaded in order (impeccable, ui-ux-pro-max, high-end-visual-design, design-taste-frontend); where they disagreed with the card, the card won (Found 4). Only `web/` and this section were changed.
