@@ -651,6 +651,29 @@ describe('payload shape (DESIGN 9.6)', () => {
     expect(Object.keys(out.judge).sort()).toEqual(['kappa', 'model_id', 'policy', 'prompt_hash']);
   });
 
+  // A stored comparison_run is keyed by STATS_VERSION, so a payload whose keys changed under an unchanged version would be served
+  // stale. Change a key list below only together with a new STATS_VERSION entry (audit D-1: P6 added keys at 1.0.0).
+  const SHAPE_BY_VERSION: Record<string, { top: string[]; per_task: string[] }> = {
+    '1.1.0': {
+      top: [
+        'experiment_id', 'config_a', 'config_b', 'axis', 'n_tasks', 'n_trials_per_task', 'n_scored', 'n_excluded', 'n_unfinished', 'reliability',
+        'rate_limit_affected_trials', 'judge_policy_applied', 'judge_confidence', 'judge', 'judge_excluded_tasks', 'unpaired_tasks', 'ci_method',
+        'aggregate', 'by_category', 'sign_test', 'mcnemar', 'mcnemar_omitted', 'per_task', 'failures', 'cost', 'latency_ms', 'tokens', 'stats_version',
+      ],
+      per_task: [
+        'task_id', 'category', 'n_a', 'n_b', 'rate_a', 'rate_b', 'delta', 'ci_low', 'ci_high', 'verdict', 'direction_only', 'judge_excluded',
+        'failure_category_a', 'failure_category_b',
+      ],
+    },
+  };
+
+  it('pins the payload keys to STATS_VERSION', () => {
+    const out = full();
+    const want = SHAPE_BY_VERSION[STATS_VERSION];
+    expect(want).toBeDefined();
+    expect({ top: Object.keys(out).sort(), per_task: Object.keys(out.per_task[0]).sort() }).toEqual({ top: [...want.top].sort(), per_task: [...want.per_task].sort() });
+  });
+
   it('echoes the inputs and names the method', () => {
     const out = full();
     expect(out).toMatchObject({
