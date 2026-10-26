@@ -54,6 +54,66 @@ the isolated stack they ran on). P3 is done (its section is at the end of this f
 
 ---
 
+## Audit fixes (code): 7 findings of `audit/AUDIT_REPORT.md` A, D, E, H (2026-10-26)
+
+8 commits, 1 per fix (fix 6 has an image part and a stats part), each holding only its own hunks; fixes 5, 6 and 1 share files and were staged separately. `web/` and the documents were not touched except ADAPTERS R-11 and DATA_MODEL 2.1 (and the one `price_snapshot` line of its section 3).
+
+### Shipped
+
+| # | Commit | What |
+|---|---|---|
+| 1 | `e73e939` | **The agent's shell can no longer read `/tasks` or `out/`.** With `WORKER_RUN_AS=agent` (set by the image) the trial child runs as the unprivileged user `agent`. The tasks mount moved to `/srv/evals/tasks` (`/srv/evals` is root, mode 700; a bind mount ignores chmod, so the mount point's parent is what closes it) and `out/` is root, mode 700. The child gets a spec with no graders and no judge model; it writes `child/events.jsonl` and `child/result.json` (the one trial directory it owns). The runner, as root, copies the fixture in, collects both files into `out/` (read through a directory fd with `O_NOFOLLOW`; a malformed result is a `worker_crash`), grades (R-7 now happens in the runner, not in the child) and writes `out/result.json`. Before every trial a probe that runs as `agent` must find the tasks directory and `out/` closed, else the trial is a `worker_crash` and no child starts. New file `worker/privilege.py`. Recorded as **R-11** in ADAPTERS section 6, with the supersession of R-7's "same child process". |
+| 2 | `08de24d` | `cached_input_price_per_mtok` on `model` (schema, migration `0004_cached_input_price`, seed, DATA_MODEL 2.1 and the `price_snapshot` line), copied into `trial.price_snapshot`; `costUsd` charges `cache_read_tokens` at it on top of input and output (`input_tokens` excludes cached tokens, DESIGN 13.14). A snapshot without the field falls back to the input price (upper bound). Values fetched from OpenRouter's endpoints listing on **2026-10-26**: model-a 0.01 USD per million tokens (all standard endpoints); model-b 0.009 (the registry's 0.018 and 0.09 are the Darkbloom endpoint's prices, and its cache read is 0.000000009 per token). |
+| 3 | `5b8912c` | `ingest` refuses a done result whose `grader_results` count differs from the task's grader count; it surfaces as an errored `worker_crash`, which `decideRetry` retries. The task context is now required for every done result (`FailureTask.graderCount`). |
+| 4 | `ff483e9` | The ingest fallback evidence names `WRONG_ANSWER_RULE`, looked up in `RULES` by category (12 today), not the literal 10. |
+| 5 | `a90dfbc` | `WORKER_REGISTRY` (any module) is gone. The fake adapter registers only when `WORKER_FAKE_ADAPTER=1`; `worker.server` raises at import (so the worker never starts) and `load_registry` raises unless `WORKER_ENV` or `NODE_ENV` is `test`. `worker/.dockerignore` lists `**/__pycache__`, `**/*.pyc` and `tests/`. |
+| 6 | `d17a51e`, `509dc66` | `STATS_VERSION` is 1.1.0 (1 bump covers the `failures` and `per_task` fields and fix 7). The image bakes `GIT_COMMIT` as the label `org.opencontainers.image.revision` and as `WORKER_COMMIT`; `GET /adapters` returns it as top-level `commit` (`worker_manifest.commit`) and `worker.image_digest` is null when empty. A container cannot know its own digest at build time, so `scripts/up.sh` builds, reads the image id and exports `IMAGE_DIGEST` and `GIT_COMMIT` before `docker compose up`; run compose by hand and the manifest carries the commit only. |
+| 7 | `c34bdbe` | `failures` counts every done-and-failed trial of A and B, any task. Judge tasks withheld by policy `excluded` are counted in the new `failures_judge_excluded` block (same shape; null under `trusted` and `flagged`). The headline, `n_scored` and the rates are unchanged. |
+
+### Verified
+
+| Check | Result |
+|---|---|
+| Worker suite, container (`docker build ./worker`, then `docker run --rm -v <repo>/worker/tests:/app/worker/tests:ro -v <repo>/tasks:/srv/evals/tasks:ro -v <repo>/docker-compose.yml:/app/docker-compose.yml:ro <image> python -m pytest -q -rfs`; the mounts are needed because the image no longer holds `tests/`) | exit 0, **643 passed, 28 skipped** in 945.76 s, 0 failed. Before: 613 passed, 28 skipped. 30 new tests: fake-adapter gate 10, R-11 runner and helpers 14, R-11 conformance 2 (1 per adapter), image wiring 3, server manifest 1. After that run `test_image_wiring.py` was split into 4 tests and `test_spec_isolation.py` got a docstring edit; both files were rerun: 9 passed, 1 skipped (root can delete from a read-only directory). |
+| API suite, container (fresh image, own compose project) | exit 0, **`Test Suites: 1 skipped, 36 passed, 36 of 37 total`; `Tests: 3 skipped, 726 passed, 729 total`**. Before: 703 passed. 23 new tests. `npx tsc --noEmit` exit 0. Migration 0004 applied on a database already at 0003 holding a model row (that row got 0 until the next seed). |
+| R-11 mutation 1 (child stays root: the `user=` line of the `Popen` call removed) | `test_r11_an_agent_that_goes_looking_in_the_tasks_and_out_is_denied[minimal_loop]` red: `WHOAMI=root`, and the probe's output lists the task JSON (the `"expected"` text is visible) and `out/`. |
+| R-11 mutation 2 (`out/` mode 755 and the access probe removed) | the same test red: `Permission denied` 2 times, 5 or more expected. |
+| R-11, both adapters | the conformance test is green for Hermes and the minimal loop as `agent`: `id -un` is `agent`; `ls <tasks>`, `cat <tasks>/<task>.json`, `ls ../out`, `cat ../out/*` and `cat ../out/events.jsonl` all say `Permission denied`; the grader sentinel never appears; the 2 graders were scored by the runner (`[true, false]`); `out/` is root, mode 700 after the run. |
+| Real compose bind mount | `docker compose -p auditfixw run` on the compose-built image: `RunnerConfig.from_env()` gives `run_as agent`, `tasks_dir /srv/evals/tasks`; the access probe finds the mount closed to `agent`; `/adapters` returns `commit` (the git sha) and `image_digest sha256:test`; 1 trial of each adapter against the stub on a real task (`det-01-csv-count`) ended `done`. Torn down afterwards. |
+| API fixes 2, 3, 4, 6 (stats), 7: red without the fix | each new test fails with the old source mounted over the baked image (fix 2: 3 ingest tests, the seed and `/models` tests; fix 3: 4 tests; fix 4: 1 test; stats version: 1 test; fix 7: 10 tests across `compare.spec.ts` and `compare.endpoints.spec.ts`). The `rules.spec.ts` test for fix 4 was not run red separately. |
+
+### Cut on purpose
+
+- No per-trial uid (1 `agent` for all trials) and no mount namespace: the request asked for an unprivileged user.
+- `IMAGE_DIGEST` is not computed inside compose (it cannot be): `scripts/up.sh` does it.
+- The worker's `ModelSpec` does not read `cached_input_price_per_mtok` (it ignores unknown keys); only the API prices.
+- Old `trial.price_snapshot` rows, the committed exports and the P5 costs were not recomputed.
+
+### Found but not fixed
+
+1. **A stack built before these commits breaks on the compose change, in a safe way.** The `p5run` and default stacks run old images. A new worker image behind an old compose file (tasks still at `/tasks`, `TASKS_DIR=/tasks`) fails closed: the access probe finds `/tasks` readable and every trial is a `worker_crash` saying so. Move both together: rebuild and recreate with the new `docker-compose.yml` (or `scripts/up.sh`); the api then applies migration 0004 and the new seed prices at start. `p5run`'s own compose copy needs the same mount line.
+2. **Documents are stale again.** DESIGN 13.6, 13.13 and 11 still say `/tasks` is readable and closing it is the open audit fix; DESIGN 9.6 describes `failures` as headline-only and `stats_version` as 1.0.0; the caveats of the "Audit fixes (docs)" section (`STATS_VERSION`, the fallback rule number, the image digest, `/tasks`) are now resolved; ADAPTERS R-3 and R-4 name `out/result.json` and `out/events.jsonl` as written by the child (the runner writes them now; R-11 says so). Not edited: only R-11 and DATA_MODEL 2.1 were allowed.
+3. **Concurrent trials share the `agent` user.** `trials/` is mode 711 and `specs/` is 1733, so a shell cannot list the other trials, but a trial id seen in `/proc/<pid>/cmdline` leads to another trial's workspace and `child/`. A per-trial uid fixes it.
+4. **The graders run agent-written code as root.** `unit_test` runs the workspace's tests in the runner; hidden test files are copied into the workspace, and a symlinked directory the agent planted inside it would send that copy elsewhere as root. Only a swap of the top-level `workspace/` for a link is handled (it is replaced by an empty directory, so the graders fail); that branch has no test.
+5. **Grading is no longer bounded by the child timeout.** `llm_judge` and `unit_test` run in the runner after the child; they have their own timeouts, but the 60 s kill margin does not cover them any more.
+6. **After a timeout kill, `collect_memory` runs as root over a directory the agent owned** and follows links; the result goes only into that trial's `memory_final`.
+7. **The spec file (R-10) is still written, and chowned to `agent`.** It holds no grader any more; the spec with the graders is never on disk. The request said to make the spec root-only, which cannot hold while the child must read its own spec.
+8. **`web/` does not know `failures_judge_excluded`** and shows broader `failures` counts than before (`web/src/api/types.ts`, `CompareView.vue`).
+9. **P5 numbers are unchanged.** Cost in the committed results is still a floor; `experiments/p5/analyze.mjs` still computes its own ceiling from `cache_read_tokens`.
+10. **The secondary experiment (`01M5STXWYMRDGQFJ47DNK5Y83S`) stays unreliable for model-a**; the primary one is unaffected (0 reads of `spec.json` in its 132 trials). These fixes close the paths for future runs, they do not repair that run.
+
+### Assumptions resolved
+
+- No A-id. Readings taken: "the spec unreadable" as "the spec holds no grader and the grader-bearing one is never written"; "grading as root in the parent" as moving `run_graders` out of `run_one.py`; "worker_manifest.commit" as a top-level `commit` key of the `/adapters` response (the API stores that response unchanged); cache-read tokens as additive to `input_tokens` (DESIGN 13.14).
+
+### Next action
+
+1. Rebuild the stacks you still use with `scripts/up.sh -d` (set `DOCKER_BUILDKIT=0 COMPOSE_BAKE=false` on this host) and change `p5run`'s compose mount to `/srv/evals/tasks`.
+2. Update DESIGN 13.6, 13.13, 9.6 and ADAPTERS R-3, R-4 (point 2 above) and the web types (point 8).
+3. If the secondary experiment is to be quoted for model-a, re-run it on the rebuilt stack (STATE P5 follow-up, Next action).
+
+---
+
 ## Audit fixes (docs): documents now describe the code as built (2026-10-26)
 
 Source: `audit/AUDIT_REPORT.md` B.2, B.3, B.5 and H row 10. Documents only; the one code-file edit is a docstring. No test was affected and none was run.
