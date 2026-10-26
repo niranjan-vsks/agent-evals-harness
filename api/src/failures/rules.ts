@@ -343,6 +343,9 @@ export const RULES: readonly Rule[] = [
   },
 ];
 
+/** The number of the rule that always matches, found by category so that renumbering RULES cannot leave a caller naming the wrong one. */
+export const WRONG_ANSWER_RULE: number = RULES.find((r) => r.category === 'wrong_answer')!.rule;
+
 /** First match wins. */
 export function categorize(trial: FailureTrial, trace: FailureTrace, graders: readonly FailureGrader[], labels: readonly FailureLabel[] = []): Categorized {
   const ctx: Ctx = { trial, trace, graders, labels };
@@ -350,5 +353,5 @@ export function categorize(trial: FailureTrial, trace: FailureTrace, graders: re
     const hit = r.match(ctx);
     if (hit) return { category: r.category, evidence: { rule: r.rule, category: r.category, ...hit } };
   }
-  throw new Error('failures: no rule matched; rule 10 must always match'); // unreachable while RULES ends with wrong_answer
+  throw new Error(`failures: no rule matched; rule ${WRONG_ANSWER_RULE} must always match`); // unreachable while RULES ends with wrong_answer
 }

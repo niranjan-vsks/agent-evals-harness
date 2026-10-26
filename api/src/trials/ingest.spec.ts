@@ -1,7 +1,14 @@
+import { categorize, RULES, WRONG_ANSWER_RULE } from '../failures/rules';
 import { costUsd, countRateLimitEvents, erroredResult, FailureTask, ingest, IngestError, MAX_TRACE_BYTES } from './ingest';
 import { trialSeed } from './seed';
 import { doneResult } from '../test-support/app';
 import { TrialSpec } from '../worker-client/types';
+
+// Spread over the real module so every other test categorizes for real; the fallback test makes the one call throw.
+jest.mock('../failures/rules', () => {
+  const actual = jest.requireActual('../failures/rules');
+  return { ...actual, categorize: jest.fn(actual.categorize) };
+});
 
 const PRICE = { input_price_per_mtok: 0.018, output_price_per_mtok: 0.09 };
 
@@ -110,6 +117,21 @@ describe('ingest', () => {
       const seeded: FailureTask = { graderCount: 1, taskCategory: 'memory_dependent', taskFixtureDir: null, memoryMode: 'seeded' };
       expect(ingest(bad, PRICE, seeded).failure).toMatchObject({ category: 'memory_ignored', evidence: { rule: 10, event_seq: 7 } });
       expect(ingest(bad, PRICE, { ...seeded, memoryMode: 'off' }).failure?.category).toBe('wrong_answer');
+    });
+
+    it('when the rules raise, the trial is kept as wrong_answer and the evidence names the wrong_answer rule of RULES (audit D-3)', () => {
+      (categorize as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('rule blew up');
+      });
+      const bad = doneResult(spec, { passed: false });
+      bad.grader_results[0].passed = false;
+      const r = ingest(bad, PRICE, TASK);
+      expect(r.failure).toEqual({
+        category: 'wrong_answer',
+        evidence: { rule: WRONG_ANSWER_RULE, category: 'wrong_answer', detail: 'the failure rules raised: rule blew up' },
+      });
+      expect(RULES.find((x) => x.rule === r.failure!.evidence.rule)?.category).toBe('wrong_answer');
+      expect(r.failure!.evidence.rule).toBe(12);
     });
 
     it('a passed result and an errored result have no category', () => {

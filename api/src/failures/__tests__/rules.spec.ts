@@ -1,5 +1,5 @@
 import { TraceEventJson } from '../../worker-client/types';
-import { categorize, FailureGrader, FailureLabel, FailureTrace, FailureTrial, FAILURE_CATEGORIES, RULES } from '../rules';
+import { categorize, FailureGrader, FailureLabel, FailureTrace, FailureTrial, FAILURE_CATEGORIES, RULES, WRONG_ANSWER_RULE } from '../rules';
 
 /**
  * 1 positive and 1 negative synthetic trace per category. A negative is the nearest case that must NOT get the category, so a
@@ -416,6 +416,13 @@ describe('the rule table', () => {
   it('has 12 rules, the card order plus the 2 added ones, ending with the rule that always matches', () => {
     expect(RULES.map((r) => r.category)).toEqual([...FAILURE_CATEGORIES]);
     expect(RULES.map((r) => r.rule)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  });
+  it('WRONG_ANSWER_RULE is the number RULES gives the wrong_answer rule, which is the one that always matches', () => {
+    expect(WRONG_ANSWER_RULE).toBe(RULES.find((r) => r.category === 'wrong_answer')!.rule);
+    expect(WRONG_ANSWER_RULE).toBe(RULES[RULES.length - 1].rule);
+    expect(WRONG_ANSWER_RULE).toBe(12);
+    // and it is what categorize() itself reports for a failure nothing else explains
+    expect(categorize(trial(), trace(plainWrong()), [exact()]).evidence.rule).toBe(WRONG_ANSWER_RULE);
   });
   it('is deterministic and does not change its inputs', () => {
     const tr = trace(plainWrong());

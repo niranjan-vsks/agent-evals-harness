@@ -7,7 +7,7 @@
  * D-11 and D-13 shapes, and the trace size limit.
  */
 import { Prisma } from '../generated/prisma/client';
-import { Categorized, categorize } from '../failures/rules';
+import { Categorized, categorize, WRONG_ANSWER_RULE } from '../failures/rules';
 import { ErrorClass, ExitReason, GraderResultJson, TraceEventJson, TrialResult } from '../worker-client/types';
 
 export const MAX_TRACE_BYTES = 5 * 1024 * 1024;
@@ -232,6 +232,6 @@ function categorizeFailure(result: TrialResult, task: FailureTask): Categorized 
       [],
     );
   } catch (e) {
-    return { category: 'wrong_answer', evidence: { rule: 10, category: 'wrong_answer', detail: `the failure rules raised: ${(e as Error).message}` } };
+    return { category: 'wrong_answer', evidence: { rule: WRONG_ANSWER_RULE, category: 'wrong_answer', detail: `the failure rules raised: ${(e as Error).message}` } };
   }
 }
