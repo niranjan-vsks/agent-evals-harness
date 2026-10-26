@@ -32,6 +32,25 @@ describe('costUsd', () => {
   it('is 0 for no tokens', () => {
     expect(costUsd(0, 0, PRICE).toString()).toBe('0');
   });
+
+  describe('cache-read tokens (D-7, DESIGN 13.14)', () => {
+    const CACHED = { ...PRICE, cached_input_price_per_mtok: 0.009 };
+
+    it('are charged at the cached price on top of input and output, which exclude them', () => {
+      expect(costUsd(0, 0, CACHED, 1_000_000).toString()).toBe('0.009');
+      // 3000 x 0.018/1e6 + 40 x 0.09/1e6 + 4288 x 0.009/1e6 = 0.0000576 + 0.000038592 = 0.000096192
+      expect(costUsd(3000, 40, CACHED, 4288).toString()).toBe('0.000096');
+    });
+
+    it('null or no cache-read tokens add nothing', () => {
+      expect(costUsd(3000, 40, CACHED, null).toString()).toBe(costUsd(3000, 40, CACHED).toString());
+      expect(costUsd(3000, 40, CACHED, 0).toString()).toBe('0.000058');
+    });
+
+    it('a snapshot without the cached price (a trial dispatched before 0004) falls back to the input price, the upper bound', () => {
+      expect(costUsd(0, 0, PRICE, 1_000_000).toString()).toBe('0.018');
+    });
+  });
 });
 
 describe('ingest', () => {
@@ -47,6 +66,17 @@ describe('ingest', () => {
     expect(r.trace?.finalResponse).toBe('FINAL: 8081');
     expect(r.graders).toHaveLength(1);
     expect(r.errorClass).toBeNull();
+  });
+
+  it("charges the result's cache_read_tokens at the snapshot's cached price", () => {
+    const cached = doneResult(spec);
+    cached.outcome!.usage.cache_read_tokens = 2_000_000;
+    const price = { ...PRICE, cached_input_price_per_mtok: 0.009 };
+    expect(ingest(cached, price).costUsd?.toString()).toBe('0.018058'); // 0.000058 + 2 x 0.009
+    expect(ingest(cached, PRICE).costUsd?.toString()).toBe('0.036058'); // no cached price: the input price, 0.000058 + 2 x 0.018
+    const none = doneResult(spec);
+    none.outcome!.usage.cache_read_tokens = null as unknown as number;
+    expect(ingest(none, price).costUsd?.toString()).toBe('0.000058');
   });
 
   it('keeps a timed-out trial as a scored failure (R-2)', () => {

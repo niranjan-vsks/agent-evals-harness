@@ -293,6 +293,7 @@ export class Scheduler implements OnApplicationBootstrap, OnModuleDestroy {
       const price: PriceSnapshot = {
         input_price_per_mtok: config.model.inputPricePerMtok.toNumber(),
         output_price_per_mtok: config.model.outputPricePerMtok.toNumber(),
+        cached_input_price_per_mtok: config.model.cachedInputPricePerMtok.toNumber(),
       };
       const rows = await tx.$queryRaw<
         { id: string; experiment_id: string; config_id: string; task_id: string; task_version_hash: string; seed: number; attempt_count: number }[]

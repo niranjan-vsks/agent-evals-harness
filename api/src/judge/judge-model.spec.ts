@@ -10,6 +10,7 @@ const ROW = {
   apiKeyEnv: 'SOME_KEY',
   inputPricePerMtok: new Prisma.Decimal('0.1'),
   outputPricePerMtok: new Prisma.Decimal('0.5'),
+  cachedInputPricePerMtok: new Prisma.Decimal('0.01'),
   contextWindow: 1000,
   roles: ['candidate', 'judge'],
 };
@@ -47,6 +48,7 @@ describe('judge model resolution', () => {
       api_key_env: 'SOME_KEY',
       input_price_per_mtok: 0.1,
       output_price_per_mtok: 0.5,
+      cached_input_price_per_mtok: 0.01,
       context_window: 1000,
     });
   });

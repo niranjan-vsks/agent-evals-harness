@@ -150,17 +150,17 @@ describe('scheduler against the fake worker (P3 gate 1)', () => {
   });
 
   it('D-7: the price snapshot placeholder is rewritten from the model at claim time, and the cost uses it', async () => {
-    await prisma.model.update({ where: { id: base.modelId }, data: { inputPricePerMtok: 3, outputPricePerMtok: 4 } });
+    await prisma.model.update({ where: { id: base.modelId }, data: { inputPricePerMtok: 3, outputPricePerMtok: 4, cachedInputPricePerMtok: 5 } });
     try {
       const ex = await fx.experiment({ configIds: [cfgA], taskIds: ['sce-01-ok'] });
       expect((await trial(ex.trialIds[0])).priceSnapshot).toEqual(PLACEHOLDER_PRICE);
       await runUntil(ex.id, (s) => s === 'completed');
       const t = await trial(ex.trialIds[0]);
-      expect(t.priceSnapshot).toEqual({ input_price_per_mtok: 3, output_price_per_mtok: 4 });
-      expect(fake.runs[0].model).toMatchObject({ input_price_per_mtok: 3, output_price_per_mtok: 4 });
+      expect(t.priceSnapshot).toEqual({ input_price_per_mtok: 3, output_price_per_mtok: 4, cached_input_price_per_mtok: 5 });
+      expect(fake.runs[0].model).toMatchObject({ input_price_per_mtok: 3, output_price_per_mtok: 4, cached_input_price_per_mtok: 5 });
       expect(Number(t.costUsd)).toBeCloseTo((3000 * 3 + 40 * 4) / 1e6, 9);
     } finally {
-      await prisma.model.update({ where: { id: base.modelId }, data: { inputPricePerMtok: 1, outputPricePerMtok: 2 } });
+      await prisma.model.update({ where: { id: base.modelId }, data: { inputPricePerMtok: 1, outputPricePerMtok: 2, cachedInputPricePerMtok: 0.5 } });
     }
   });
 

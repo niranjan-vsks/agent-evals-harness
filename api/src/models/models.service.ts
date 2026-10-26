@@ -12,6 +12,7 @@ const SeedRow = z.object({
   api_key_env: z.string().min(1),
   input_price_per_mtok: z.number().nonnegative(),
   output_price_per_mtok: z.number().nonnegative(),
+  cached_input_price_per_mtok: z.number().nonnegative(),
   context_window: z.number().int().positive(),
   roles: z.array(z.enum(['candidate', 'judge'])),
 });
@@ -42,6 +43,7 @@ export class ModelsService implements OnModuleInit {
         apiKeyEnv: r.api_key_env,
         inputPricePerMtok: r.input_price_per_mtok,
         outputPricePerMtok: r.output_price_per_mtok,
+        cachedInputPricePerMtok: r.cached_input_price_per_mtok,
         contextWindow: r.context_window,
         roles: r.roles,
       };
@@ -61,6 +63,7 @@ export class ModelsService implements OnModuleInit {
       api_key_env: m.apiKeyEnv,
       input_price_per_mtok: m.inputPricePerMtok.toNumber(),
       output_price_per_mtok: m.outputPricePerMtok.toNumber(),
+      cached_input_price_per_mtok: m.cachedInputPricePerMtok.toNumber(),
       context_window: m.contextWindow,
       roles: m.roles,
       created_at: m.createdAt,

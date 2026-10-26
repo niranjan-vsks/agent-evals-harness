@@ -36,6 +36,7 @@ export async function resolveJudgeModel(prisma: PrismaService, graders: unknown[
     api_key_env: m.apiKeyEnv,
     input_price_per_mtok: m.inputPricePerMtok.toNumber(),
     output_price_per_mtok: m.outputPricePerMtok.toNumber(),
+    cached_input_price_per_mtok: m.cachedInputPricePerMtok.toNumber(),
     context_window: m.contextWindow,
   };
 }

@@ -106,7 +106,7 @@ describe('Scheduler (database, in-process worker)', () => {
         attemptCount: 1,
         errorClass: null,
         errorMessage: null,
-        priceSnapshot: { input_price_per_mtok: 1, output_price_per_mtok: 2 },
+        priceSnapshot: { input_price_per_mtok: 1, output_price_per_mtok: 2, cached_input_price_per_mtok: 0.5 },
       });
       expect(t.startedAt).not.toBeNull();
       expect(t.heartbeatAt).not.toBeNull();

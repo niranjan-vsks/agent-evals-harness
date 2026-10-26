@@ -56,8 +56,8 @@ export async function insertBaseRows(pool: Pool): Promise<BaseRows> {
   const taskId = `tst-01-${suffix.replace(/[^a-z0-9]/g, '')}`;
   const taskVersionHash = `hash-${suffix}`;
   await pool.query(
-    `INSERT INTO model (id, display_name, slug, base_url, api_key_env, input_price_per_mtok, output_price_per_mtok, context_window, roles)
-     VALUES ($1, 'test', $2, 'http://x', 'KEY', 1, 2, 1000, ARRAY['candidate'])`,
+    `INSERT INTO model (id, display_name, slug, base_url, api_key_env, input_price_per_mtok, output_price_per_mtok, cached_input_price_per_mtok, context_window, roles)
+     VALUES ($1, 'test', $2, 'http://x', 'KEY', 1, 2, 0.5, 1000, ARRAY['candidate'])`,
     [modelId, `slug/${suffix}`],
   );
   await pool.query(`INSERT INTO harness (id, version, capabilities) VALUES ($1, $2, '{}')`, [harnessId, harnessVersion]);
@@ -105,7 +105,7 @@ export async function insertTrial(
   const id = ulid();
   await pool.query(
     `INSERT INTO trial (id, experiment_id, config_id, task_id, task_version_hash, trial_index, seed, status, passed, exit_reason, error_class, failure_category, failure_evidence, price_snapshot)
-     VALUES ($1, $2, $3, $4, $5, $6, 1, $7::trial_status, $8, $9::exit_reason, $10::error_class, $11::failure_category, $12::jsonb, '{"input_price_per_mtok":1,"output_price_per_mtok":2}')`,
+     VALUES ($1, $2, $3, $4, $5, $6, 1, $7::trial_status, $8, $9::exit_reason, $10::error_class, $11::failure_category, $12::jsonb, '{"input_price_per_mtok":1,"output_price_per_mtok":2,"cached_input_price_per_mtok":0.5}')`,
     [
       id,
       experimentId,

@@ -5,7 +5,7 @@
 import { HttpException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveJudgeModel } from '../judge/judge-model';
-import { erroredResult, FailureTask, IngestedTrial, ingest, IngestError, PriceSnapshot } from '../trials/ingest';
+import { cachedPrice, erroredResult, FailureTask, IngestedTrial, ingest, IngestError, PriceSnapshot } from '../trials/ingest';
 import { SettingsJson, TrialResult, TrialSpec } from '../worker-client/types';
 import { WorkerClient, WorkerUnavailableError } from '../worker-client/worker-client';
 
@@ -83,6 +83,7 @@ export async function buildSpecAndContext(prisma: PrismaService, c: ClaimedTrial
       api_key_env: config.model.apiKeyEnv,
       input_price_per_mtok: c.price.input_price_per_mtok,
       output_price_per_mtok: c.price.output_price_per_mtok,
+      cached_input_price_per_mtok: cachedPrice(c.price),
       context_window: config.model.contextWindow,
     },
     settings,

@@ -30,6 +30,16 @@ export class IngestError extends Error {}
 export interface PriceSnapshot {
   input_price_per_mtok: number;
   output_price_per_mtok: number;
+  /** Absent on a snapshot taken before 0004_cached_input_price (an in-flight trial dispatched before that deploy). */
+  cached_input_price_per_mtok?: number;
+}
+
+/**
+ * The price of a cache-read token. A snapshot without the field falls back to the input price, the safe upper bound:
+ * a cached token never costs more than an uncached one, so the cost of such a trial is over-stated, never under-stated.
+ */
+export function cachedPrice(price: PriceSnapshot): number {
+  return price.cached_input_price_per_mtok ?? price.input_price_per_mtok;
 }
 
 /** What the failure rules need to know about the task and the config (P6 card section 4); the trace and graders come from the result. */
@@ -72,12 +82,16 @@ export interface IngestedTrial {
   failure: Categorized | null;
 }
 
-/** tokens x USD per million tokens, to the 6 decimal places the column holds. */
-export function costUsd(inputTokens: number, outputTokens: number, price: PriceSnapshot): Prisma.Decimal {
+/**
+ * tokens x USD per million tokens, to the 6 decimal places the column holds. input_tokens already EXCLUDES the cache-read
+ * tokens (DESIGN.md 13.14), so those are charged on top, at the cached price.
+ */
+export function costUsd(inputTokens: number, outputTokens: number, price: PriceSnapshot, cacheReadTokens: number | null = null): Prisma.Decimal {
   const D = Prisma.Decimal;
   return new D(inputTokens)
     .mul(new D(String(price.input_price_per_mtok)))
     .plus(new D(outputTokens).mul(new D(String(price.output_price_per_mtok))))
+    .plus(new D(cacheReadTokens ?? 0).mul(new D(String(cachedPrice(price)))))
     .div(1_000_000)
     .toDecimalPlaces(6, Prisma.Decimal.ROUND_HALF_UP);
 }
@@ -175,7 +189,7 @@ export function ingest(result: TrialResult, price: PriceSnapshot, task?: Failure
     reasoningTokens: u.reasoning_tokens,
     apiCalls: u.api_calls,
     latencyMs: outcome.latency_ms,
-    costUsd: costUsd(u.input_tokens, u.output_tokens, price),
+    costUsd: costUsd(u.input_tokens, u.output_tokens, price, u.cache_read_tokens),
     harnessCostUsd: typeof harnessCost === 'number' ? new Prisma.Decimal(harnessCost).toDecimalPlaces(6) : null,
     rateLimitEvents: countRateLimitEvents(trace.events),
     errorClass: null,

@@ -199,6 +199,7 @@ describe('experiments (S1): CRUD, trial generation, transitions', () => {
         expect(t.priceSnapshot).toEqual({
           input_price_per_mtok: t.config.model.inputPricePerMtok.toNumber(),
           output_price_per_mtok: t.config.model.outputPricePerMtok.toNumber(),
+          cached_input_price_per_mtok: t.config.model.cachedInputPricePerMtok.toNumber(),
         });
       }
       expect(new Set(trials.map((t) => t.seed)).size).toBe(trials.length); // distinct seeds

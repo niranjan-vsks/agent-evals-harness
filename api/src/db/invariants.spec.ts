@@ -268,6 +268,16 @@ describe('database invariants', () => {
       expect(err?.code).toBe(CHECK_VIOLATION);
     });
 
+    it('rejects a negative cached input price', async () => {
+      const err = await sqlState(
+        pool.query(
+          `INSERT INTO model (id, display_name, slug, base_url, api_key_env, input_price_per_mtok, output_price_per_mtok, cached_input_price_per_mtok, context_window, roles)
+           VALUES ('negc', 'n', 'negc/slug', 'http://x', 'K', 1, 1, -0.5, 10, ARRAY[]::text[])`,
+        ),
+      );
+      expect(err?.code).toBe(CHECK_VIOLATION);
+    });
+
     it('requires judge model and prompt hash exactly for llm_judge graders', async () => {
       const exp = await insertExperiment(pool);
       const trialId = await insertTrial(pool, base, exp);

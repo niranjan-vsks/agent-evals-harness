@@ -68,6 +68,7 @@ export class AdhocService {
     const price: PriceSnapshot = {
       input_price_per_mtok: config.model.inputPricePerMtok.toNumber(),
       output_price_per_mtok: config.model.outputPricePerMtok.toNumber(),
+      cached_input_price_per_mtok: config.model.cachedInputPricePerMtok.toNumber(),
     };
     const experimentId = ulid();
     const trialId = ulid();

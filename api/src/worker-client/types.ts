@@ -13,6 +13,7 @@ export interface ModelSpecJson {
   api_key_env: string;
   input_price_per_mtok: number;
   output_price_per_mtok: number;
+  cached_input_price_per_mtok: number;
   context_window: number;
 }
 

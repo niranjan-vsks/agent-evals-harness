@@ -42,12 +42,14 @@ task (versioned by hash) ─┐          │
 | api_key_env | text | name of the env var, never the value (ADAPTERS M-4) |
 | input_price_per_mtok | numeric(12,6) | ≥ 0 |
 | output_price_per_mtok | numeric(12,6) | ≥ 0 |
+| cached_input_price_per_mtok | numeric(12,6) | ≥ 0, default 0; price of a cache-read token, charged on top of input and output because `input_tokens` excludes cached tokens (DESIGN 13.14) |
 | context_window | int | > 0 |
 | roles | text[] | subset of {candidate, judge} |
 | created_at | timestamptz | |
 
 Seeded from `api/seed/models.json` at startup (upsert by id). Price edits are allowed:
 history is protected by `trial.price_snapshot` (D-7), not by freezing this table.
+The `cached_input_price_per_mtok` values in the seed were fetched from OpenRouter's endpoints listing on 2026-10-26.
 
 ### 2.2 `harness`
 
@@ -185,7 +187,7 @@ pre-registration is that the prediction cannot be edited after seeing data.
 | latency_ms | int NULL | wall clock of the harness `run()` |
 | cost_usd | numeric(12,6) NULL | computed by the API: tokens × `price_snapshot` |
 | harness_cost_usd | numeric(12,6) NULL | as reported by the harness, for comparison only |
-| price_snapshot | jsonb NOT NULL | `{input_price_per_mtok, output_price_per_mtok}` copied from `model` when the trial is dispatched (**D-7**) |
+| price_snapshot | jsonb NOT NULL | `{input_price_per_mtok, output_price_per_mtok, cached_input_price_per_mtok}` copied from `model` when the trial is dispatched (**D-7**) |
 | rate_limit_events | int | count of `api_call` events with `http_status = 429`; default 0 |
 | error_class | enum error_class NULL | `rate_limited`, `provider_error`, `worker_crash`, `grader_error`, `config_invalid`, `backpressure`, `orphaned`, `cancelled` |
 | error_message | text NULL | |

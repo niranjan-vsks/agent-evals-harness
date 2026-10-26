@@ -128,6 +128,7 @@ model Model {
   apiKeyEnv           String   @map("api_key_env")
   inputPricePerMtok   Decimal  @map("input_price_per_mtok") @db.Decimal(12, 6)
   outputPricePerMtok  Decimal  @map("output_price_per_mtok") @db.Decimal(12, 6)
+  cachedInputPricePerMtok Decimal @default(0) @map("cached_input_price_per_mtok") @db.Decimal(12, 6)
   contextWindow       Int      @map("context_window")
   roles               String[]
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

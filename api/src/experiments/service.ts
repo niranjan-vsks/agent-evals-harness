@@ -54,7 +54,7 @@ const TrialsQuery = z.object({
 });
 
 type Tx = Prisma.TransactionClient;
-type Price = { input_price_per_mtok: number; output_price_per_mtok: number };
+type Price = { input_price_per_mtok: number; output_price_per_mtok: number; cached_input_price_per_mtok: number };
 
 function parse<T>(schema: z.ZodType<T>, raw: unknown, what: string): T {
   const r = schema.safeParse(raw ?? {});
@@ -93,8 +93,12 @@ function experimentJson(e: ExperimentRow, counts: TrialCounts) {
   };
 }
 
-function priceOf(m: { inputPricePerMtok: { toNumber(): number }; outputPricePerMtok: { toNumber(): number } }): Price {
-  return { input_price_per_mtok: m.inputPricePerMtok.toNumber(), output_price_per_mtok: m.outputPricePerMtok.toNumber() };
+function priceOf(m: { inputPricePerMtok: { toNumber(): number }; outputPricePerMtok: { toNumber(): number }; cachedInputPricePerMtok: { toNumber(): number } }): Price {
+  return {
+    input_price_per_mtok: m.inputPricePerMtok.toNumber(),
+    output_price_per_mtok: m.outputPricePerMtok.toNumber(),
+    cached_input_price_per_mtok: m.cachedInputPricePerMtok.toNumber(),
+  };
 }
 
 @Injectable()

@@ -7,6 +7,7 @@
     "api_key_env": "OPENROUTER_API_KEY",
     "input_price_per_mtok": 0.1,
     "output_price_per_mtok": 0.5,
+    "cached_input_price_per_mtok": 0.01,
     "context_window": 1000000,
     "roles": ["candidate", "judge"]
   },
@@ -18,6 +19,7 @@
     "api_key_env": "OPENROUTER_API_KEY",
     "input_price_per_mtok": 0.018,
     "output_price_per_mtok": 0.09,
+    "cached_input_price_per_mtok": 0.009,
     "context_window": 131072,
     "roles": ["candidate", "judge"]
   }

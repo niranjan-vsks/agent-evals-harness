@@ -7,7 +7,7 @@ import { Prisma, PrismaClient } from '../src/generated/prisma/client';
 import { trialSeed } from '../src/trials/seed';
 import { TrialSpec } from '../src/worker-client/types';
 
-export const PLACEHOLDER_PRICE = { input_price_per_mtok: 999, output_price_per_mtok: 999 };
+export const PLACEHOLDER_PRICE = { input_price_per_mtok: 999, output_price_per_mtok: 999, cached_input_price_per_mtok: 999 };
 
 export function settingsJson(over: Record<string, unknown> = {}) {
   return {
@@ -48,6 +48,7 @@ export class Fixtures {
         apiKeyEnv: 'KEY',
         inputPricePerMtok: 1,
         outputPricePerMtok: 2,
+        cachedInputPricePerMtok: 0.5,
         contextWindow: 1000,
         roles: ['candidate'],
       },
@@ -243,7 +244,7 @@ export function miniSpec(over: Partial<TrialSpec> = {}): TrialSpec {
     attempt: 1,
     seed: 1,
     harness: 'h',
-    model: { id: 'm', slug: 's', base_url: 'http://x', api_key_env: 'K', input_price_per_mtok: 1, output_price_per_mtok: 2, context_window: 1000 },
+    model: { id: 'm', slug: 's', base_url: 'http://x', api_key_env: 'K', input_price_per_mtok: 1, output_price_per_mtok: 2, cached_input_price_per_mtok: 0.5, context_window: 1000 },
     settings: settingsJson() as TrialSpec['settings'],
     task: { id: 'tst-01-x', version_hash: 'h', prompt: 'p', fixture_dir: null, memory_fixture: null, graders: [{ type: 'exact_match' }] },
     memory_seed: null,

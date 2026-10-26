@@ -16,7 +16,7 @@ function specOf(over: Partial<TrialSpec> = {}): TrialSpec {
     attempt: 1,
     seed: 1,
     harness: 'h',
-    model: { id: 'm', slug: 's', base_url: 'http://x', api_key_env: 'K', input_price_per_mtok: 1, output_price_per_mtok: 2, context_window: 1000 },
+    model: { id: 'm', slug: 's', base_url: 'http://x', api_key_env: 'K', input_price_per_mtok: 1, output_price_per_mtok: 2, cached_input_price_per_mtok: 0.5, context_window: 1000 },
     settings: {
       tools: [],
       memory: { mode: 'off', fixture: null, fixture_hash: null },
@@ -160,7 +160,7 @@ describe('buildSpec', () => {
       seed: 42,
       attemptNo: 3,
       attemptCount: 2,
-      price: { input_price_per_mtok: 7, output_price_per_mtok: 8 },
+      price: { input_price_per_mtok: 7, output_price_per_mtok: 8, cached_input_price_per_mtok: 3 },
       modelSlug: base.modelSlug,
       ...over,
     };
@@ -175,12 +175,18 @@ describe('buildSpec', () => {
       attempt: 3,
       seed: 42,
       harness: base.harnessId,
-      model: { id: base.modelId, slug: base.modelSlug, input_price_per_mtok: 7, output_price_per_mtok: 8, context_window: 1000 },
+      model: { id: base.modelId, slug: base.modelSlug, input_price_per_mtok: 7, output_price_per_mtok: 8, cached_input_price_per_mtok: 3, context_window: 1000 },
       settings: { max_steps: 77 },
       task: { id: 'scd-01-plain', prompt: 'prompt of scd-01-plain', fixture_dir: null, memory_fixture: null },
       memory_seed: null,
     });
     expect('judge_model' in spec).toBe(false);
+  });
+
+  it('a claimed price without the cached field (dispatched before 0004) gives the worker the input price as the cached price', async () => {
+    const cfg = await fx.config(base, 'legacy-price');
+    const spec = await buildSpec(prisma, await claimed(cfg, 'scd-01-plain', { price: { input_price_per_mtok: 7, output_price_per_mtok: 8 } }));
+    expect(spec.model.cached_input_price_per_mtok).toBe(7);
   });
 
   it('seeds memory from the stored fixture, MEMORY.md and USER.md only', async () => {

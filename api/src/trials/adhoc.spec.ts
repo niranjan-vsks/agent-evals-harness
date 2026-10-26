@@ -64,7 +64,7 @@ describe('POST /trials/adhoc', () => {
 
   it('snapshots the model prices into the trial (D-7), so a later price change leaves history alone', async () => {
     const res = await adhoc(offId);
-    expect(res.body.trial.price_snapshot).toEqual({ input_price_per_mtok: 0.018, output_price_per_mtok: 0.09 });
+    expect(res.body.trial.price_snapshot).toEqual({ input_price_per_mtok: 0.018, output_price_per_mtok: 0.09, cached_input_price_per_mtok: 0.009 });
     await prisma.model.update({ where: { id: 'model-b' }, data: { inputPricePerMtok: 5 } });
     const again = await http.get(`/trials/${res.body.trial.id}`);
     expect(again.body.price_snapshot.input_price_per_mtok).toBe(0.018);

@@ -92,6 +92,7 @@ run('gate-4 walk against the real worker and Hermes, with the stub model server'
       api_key_env: 'OPENROUTER_API_KEY',
       input_price_per_mtok: 1,
       output_price_per_mtok: 2,
+      cached_input_price_per_mtok: 0.5,
       context_window: 131072,
       roles: ['candidate'],
     });

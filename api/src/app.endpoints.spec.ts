@@ -29,6 +29,7 @@ describe('read endpoints and the boot-time seeds', () => {
       slug: 'anthropic/claude-haiku-5.5',
       input_price_per_mtok: 0.1,
       output_price_per_mtok: 0.5,
+      cached_input_price_per_mtok: 0.01,
       context_window: 1000000,
       api_key_env: 'OPENROUTER_API_KEY',
       base_url: 'https://openrouter.ai/api/v1',
@@ -37,6 +38,7 @@ describe('read endpoints and the boot-time seeds', () => {
       slug: 'openai/gpt-oss-20b',
       input_price_per_mtok: 0.018,
       output_price_per_mtok: 0.09,
+      cached_input_price_per_mtok: 0.009,
       context_window: 131072,
     });
   });
@@ -79,6 +81,7 @@ describe('models seed validation', () => {
     api_key_env: 'KEY',
     input_price_per_mtok: 1,
     output_price_per_mtok: 2,
+    cached_input_price_per_mtok: 0.5,
     context_window: 10,
     roles: ['candidate'],
   };
@@ -90,6 +93,8 @@ describe('models seed validation', () => {
   it.each([
     ['an id with capitals', { id: 'Model_X' }],
     ['a negative price', { input_price_per_mtok: -1 }],
+    ['a negative cached price', { cached_input_price_per_mtok: -1 }],
+    ['a row without a cached price', { cached_input_price_per_mtok: undefined }],
     ['a zero context window', { context_window: 0 }],
     ['an unknown role', { roles: ['admin'] }],
     ['a base url that is not a url', { base_url: 'openrouter' }],
