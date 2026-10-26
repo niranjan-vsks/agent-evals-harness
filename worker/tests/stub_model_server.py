@@ -27,6 +27,7 @@ Scenarios
   padded              one answer with leading and trailing whitespace (H-11: kept verbatim)
   risky_command       step 0 runs a recursive delete in the workspace, then answers (A-12: no prompt)
   read_graders        step 0 runs LEAK_PROBE (cat ../spec.json, find .. -name "*.json", ls ..), then answers (R-10)
+  run_probe           step 0 runs the shell line in PROBE["command"] (a test sets it), then answers (R-11)
 
 Judge scenarios (llm_judge, P2). The rubric ids are read from the "## Rubric" section of the
 prompt, so one scenario serves every rubric. The verdict is scripted, not judged.
@@ -52,6 +53,7 @@ ANSWER = "FINAL: 8081"
 # tell "the shell ran and found nothing" from "the shell never ran"; the last part lists the trial dir.
 LEAK_PROBE = 'echo CONTROL-SHELL-RAN; cat ../spec.json 2>&1; find .. -name "*.json" 2>&1; echo LS-BEGIN $(ls -A ..) LS-END'
 STAGING_DB = "pg-stage-07.internal:6432"
+PROBE = {"command": "echo probe-not-set"}  # the shell line of scenario run_probe; a test sets it before it runs a trial
 
 
 def _scenario(model: str) -> str:
@@ -132,6 +134,11 @@ def _plan(scenario: str, body: dict[str, Any], n_request: int) -> dict[str, Any]
         shell = _find_tool(tools, "terminal", "shell", "bash")
         if shell is not None and step < 1:
             return {"content": "", "tool_calls": [_tool_call(0, shell["name"], json.dumps(_args_for(shell, LEAK_PROBE)))]}
+        return {"content": ANSWER, "tool_calls": []}
+    if scenario == "run_probe":
+        shell = _find_tool(tools, "terminal", "shell", "bash")
+        if shell is not None and step < 1:
+            return {"content": "", "tool_calls": [_tool_call(0, shell["name"], json.dumps(_args_for(shell, PROBE["command"])))]}
         return {"content": ANSWER, "tool_calls": []}
     if scenario == "echo_memory":
         return {"content": f"FINAL: {_staging_db(system)}", "tool_calls": []}

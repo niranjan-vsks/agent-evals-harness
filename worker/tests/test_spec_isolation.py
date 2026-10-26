@@ -1,4 +1,4 @@
-"""R-10: the spec file holds the graders, so it is never under trial_dir while the agent runs. These are the runner and
+"""R-10: the spec file is never under trial_dir while the agent runs (it held the graders until R-11 took them out of the child's spec). These are the runner and
 child-process halves; test_adapter_conformance.py::test_r10_* is the end-to-end one with a stub model that goes looking."""
 import json
 import os
@@ -14,7 +14,7 @@ from worker.tests.conftest import make_spec
 def test_r10_the_spec_is_not_under_the_trial_dir_during_the_run(runner_env, tasks_dir):
     res = run_trial(make_spec(tasks_dir, mode="list_trial_dir"), runner_env)
     top, jsons = res["outcome"]["final_response"].removeprefix("FINAL: ").split("|")
-    assert set(top.split(",")) <= {"workspace", "out", "home", "tmp"}
+    assert set(top.split(",")) <= {"workspace", "out", "home", "tmp", "child"}
     assert "spec.json" not in jsons and "spec.json" not in top
     assert not any((runner_env.work_dir / "specs").glob("*"))  # and none is left behind
 

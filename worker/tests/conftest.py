@@ -3,6 +3,7 @@ a TrialSpec builder."""
 import json
 import os
 import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -155,3 +156,35 @@ def world(tmp_path_factory, stub):
     mp.setenv(KEY_ENV, SENTINEL_KEY)
     yield World(base, build_tasks_dir(base / "tasks"), stub)
     mp.undo()
+
+
+def agent_user_available() -> bool:
+    """R-11 tests run the child as `agent`: that needs a POSIX root worker and the user the image creates."""
+    if os.name != "posix" or os.geteuid() != 0:
+        return False
+    import pwd
+
+    try:
+        pwd.getpwnam("agent")
+    except KeyError:
+        return False
+    return True
+
+
+@pytest.fixture
+def r11_cfg(monkeypatch: pytest.MonkeyPatch):
+    """A runner config with run_as="agent". pytest's own tmp dirs are root-only (so the child could not even enter its trial dir): the work
+    dir sits in a directory `agent` can enter, and the tasks in a root-only one next to it, as in the image."""
+    if not agent_user_available():
+        pytest.skip("needs a root worker and the `agent` user (the worker image)")
+    monkeypatch.setenv(KEY_ENV, SENTINEL_KEY)
+    base = Path(tempfile.mkdtemp(prefix="r11-", dir="/var/tmp"))
+    base.chmod(0o755)
+    private = base / "private"
+    private.mkdir()
+    private.chmod(0o700)
+    tasks = build_tasks_dir(private / "tasks")
+    yield RunnerConfig(
+        work_dir=base / "work", tasks_dir=tasks, keep_trial_dirs=True, kill_margin_seconds=45.0, term_grace_seconds=2.0, run_as="agent"
+    )
+    shutil.rmtree(base, ignore_errors=True)

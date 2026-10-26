@@ -94,7 +94,7 @@ def test_slot_is_released_when_the_attempt_raises_or_errors(cfg, tasks_dir):
 def test_delete_cancels_a_real_running_child_and_the_result_says_cancelled(client, cfg, tasks_dir):
     t, out = _stalled_trial(tasks_dir, cfg, "t-cancel-1")
     proc = active_trials._active["t-cancel-1"].proc
-    events = cfg.work_dir / "trials" / "t-cancel-1" / "1" / "out" / "events.jsonl"
+    events = cfg.work_dir / "trials" / "t-cancel-1" / "1" / "child" / "events.jsonl"
     assert _wait_for(lambda: events.is_file() and b'"pid"' in events.read_bytes()), "the child never reached its stall"
     res = client.delete("/trials/t-cancel-1")
     assert res.status_code == 200 and res.json() == {"cancelled": True}
@@ -124,7 +124,7 @@ def test_a_timeout_is_still_a_scored_timeout_not_a_cancel(cfg, tasks_dir):
 def test_the_same_trial_id_is_refused_with_429_before_the_disk_is_touched(runner_env, tasks_dir):
     cfg = replace(runner_env, max_parallel=2)
     t, out = _stalled_trial(tasks_dir, cfg, "t-dup-1")
-    events = cfg.work_dir / "trials" / "t-dup-1" / "1" / "out" / "events.jsonl"
+    events = cfg.work_dir / "trials" / "t-dup-1" / "1" / "child" / "events.jsonl"
     assert _wait_for(lambda: events.is_file() and b'"pid"' in events.read_bytes())
     before = events.read_bytes()
     try:

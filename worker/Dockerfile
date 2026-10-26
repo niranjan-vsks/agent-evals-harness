@@ -16,8 +16,12 @@ COPY requirements.txt /app/worker/requirements.txt
 RUN pip install --no-cache-dir -r /app/worker/requirements.txt
 COPY . /app/worker
 ENV PYTHONPATH=/app
-ENV WORK_DIR=/work TASKS_DIR=/tasks
-RUN mkdir -p /work /tasks
+# ADAPTERS R-11: the trial child runs as `agent`. The tasks (every expected answer and the _hidden/ tests) are mounted under /srv/evals, which
+# only root can enter: a bind mount ignores chmod, so the mount point's parent is what keeps `agent` out. /work is enter-only for it; the
+# runner hands each trial its own directories.
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin agent \
+ && mkdir -p /work /srv/evals && chmod 755 /work && chmod 700 /srv/evals
+ENV WORK_DIR=/work TASKS_DIR=/srv/evals/tasks WORKER_RUN_AS=agent
 # What the image was built from (compose passes GIT_COMMIT): the label, and WORKER_COMMIT for GET /adapters (worker_manifest.commit).
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.revision=${GIT_COMMIT}

@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ import pytest
 from worker.adapters import REGISTRY
 from worker.adapters.base import MemorySettings, Settings, SkillSettings
 from worker.spec import build_context, parse_trial_spec
+from worker.runner import run_trial
+from worker.tests import stub_model_server
 from worker.tests.conftest import SENTINEL_KEY, make_spec, write_task
 from worker.tests.harness_world import SEED, SEEDED
 
@@ -408,7 +411,7 @@ def test_a_failure_with_no_http_status_is_a_scored_agent_error(adapter_id, world
 # ------------------------------------------------------------------ R-10: the graders are not next to the agent
 
 GRADER_SENTINEL = "GRADER-SENTINEL-4c1f9e7a"
-RUNNER_DIRS = {"workspace", "out", "home", "tmp"}
+RUNNER_DIRS = {"workspace", "out", "home", "tmp", "child"}
 HARNESS_HOMES = {"hermes_home", "memory"}  # created by prepare(): each adapter's own home
 
 
@@ -434,3 +437,41 @@ def test_r10_an_agent_that_goes_looking_for_the_graders_finds_none(adapter_id, w
     # and nothing named spec.json was left behind anywhere under the trial dir or in the specs directory
     assert not list(run.trial_dir.rglob("spec.json"))
     assert not list((world.cfg.work_dir / "specs").glob("*"))
+
+
+# ------------------------------------------------------------------ R-11: the child cannot read the tasks or out/
+
+R11_SENTINEL = "R11-SENTINEL-8b3e5a1d"
+
+
+def test_r11_an_agent_that_goes_looking_in_the_tasks_and_out_is_denied(adapter_id, r11_cfg, stub, monkeypatch):
+    """The child runs as `agent`. A stub model's shell lists the tasks directory, cats a task file (its expected answers),
+    lists and cats `../out/*`. Every one of them must say permission denied and none of the grader text may come back, while
+    the runner, as root, still copies the fixture in, collects the trace into out/ and grades."""
+    tasks = r11_cfg.tasks_dir
+    graders = [{"type": "exact_match", "expected": "8081"}, {"type": "exact_match", "expected": R11_SENTINEL}]
+    write_task(tasks, "det-r11", None, graders)
+    probe = (
+        "echo CONTROL-SHELL-RAN; echo WHOAMI=$(id -un); echo hi > note.txt && echo WROTE-WORKSPACE; "
+        f"ls {tasks} 2>&1; cat {tasks}/det-r11.json 2>&1; ls /tasks 2>&1; ls ../out 2>&1; cat ../out/* 2>&1; cat ../out/events.jsonl 2>&1; "
+        "echo LS-BEGIN $(ls -A ..) LS-END"
+    )
+    monkeypatch.setitem(stub_model_server.PROBE, "command", probe)
+    spec = make_spec(tasks, harness=adapter_id, base_url=stub.base_url, slug="stub/run_probe", timeout=120, task_id="det-r11")
+    res = run_trial(spec, r11_cfg)
+
+    assert res["status"] == "done", res.get("error_message")
+    seen = "\n".join(str(e.get("output", "")) for e in res["trace"]["events"] if e["kind"] == "tool_result")
+    assert "CONTROL-SHELL-RAN" in seen, "the shell did not run"
+    assert "WHOAMI=agent" in seen and "WROTE-WORKSPACE" in seen
+    assert seen.count("Permission denied") >= 5, seen  # ls tasks, cat the task, ls ../out, cat ../out/*, cat ../out/events.jsonl
+    assert R11_SENTINEL not in seen and '"expected"' not in seen and '"graders"' not in seen
+    names = set(re.search(r"LS-BEGIN (.*?) LS-END", seen, re.S).group(1).split())
+    assert names <= RUNNER_DIRS | HARNESS_HOMES
+
+    # graded in the parent, as root, after the child: the first grader passes on the child's answer, the second is the sentinel it never saw
+    assert [g["passed"] for g in res["grader_results"]] == [True, False]
+    kept = r11_cfg.work_dir / "trials" / spec["trial_id"] / "1"
+    assert stat.S_IMODE((kept / "out").stat().st_mode) == 0o700 and (kept / "out").stat().st_uid == 0
+    assert (kept / "out" / "events.jsonl").is_file() and (kept / "out" / "result.json").is_file()
+    assert (kept / "workspace" / "note.txt").stat().st_uid != 0  # what the agent wrote is its own

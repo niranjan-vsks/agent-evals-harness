@@ -48,7 +48,8 @@ services:
     env_file:
       - .env
     environment:
-      TASKS_DIR: /tasks
+      # The tasks sit under /srv/evals, which only root can enter, so the trial child (user `agent`) cannot read them (ADAPTERS R-11).
+      TASKS_DIR: /srv/evals/tasks
       WORK_DIR: /work
       # The built image's id, exported by scripts/up.sh after the build (a container cannot know it at build time). Empty when
       # compose is run by hand: then worker_manifest.image_digest is null and worker_manifest.commit is the pin.
@@ -56,7 +57,7 @@ services:
       KEEP_TRIAL_DIRS: ${KEEP_TRIAL_DIRS:-0}
       WORKER_MAX_PARALLEL: ${WORKER_MAX_PARALLEL:-4}
     volumes:
-      - ./tasks:/tasks:ro
+      - ./tasks:/srv/evals/tasks:ro
       - workdata:/work
     ports:
       - "127.0.0.1:8000:8000"  # the worker has no authentication; only the api (on the compose network) and this host may call it

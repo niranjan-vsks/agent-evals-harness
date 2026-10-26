@@ -1,12 +1,13 @@
 """Child entry point: python -m worker.run_one <spec.json>  (R-1).
 
-Runs prepare -> run -> collect_memory -> graders in this one process while the workspace still
-exists (R-7), then writes out/result.json. A programming error propagates: the process exits
-non-zero without result.json and the runner reports worker_crash (R-3, H-6).
+Runs prepare -> run -> collect_memory in this one process, then writes child/result.json (the run result,
+the memory and the run time). It does not grade: the graders are not in its spec, and the runner grades as root
+once the child is gone while the workspace still exists (R-7, R-11). A programming error propagates: the process
+exits non-zero without result.json and the runner reports worker_crash (R-3, H-6).
 
-The spec file holds the graders, so it is deleted as soon as it is read, before prepare() (R-10), and the
-trial dir is checked to hold nothing but the runner's own directories. If either step fails the child exits
-non-zero rather than start an agent next to the graders.
+The spec file is deleted as soon as it is read, before prepare() (R-10), and the trial dir is checked to hold
+nothing but the runner's own directories. If either step fails the child exits non-zero rather than start an
+agent next to a spec file.
 """
 import dataclasses
 import json
@@ -16,12 +17,12 @@ import time
 from pathlib import Path
 
 from worker.adapters.base import TrialContext
-from worker.graders import GraderError, run_graders
 from worker.registry import load_registry
 from worker.spec import build_context, parse_trial_spec
 
 
 def load_context(payload: dict) -> tuple[TrialContext, list[dict]]:
+    """The trial context and the graders the payload carries (none, in the child's view of the spec)."""
     parsed = parse_trial_spec(payload["spec"])
     paths = payload["paths"]
     ctx = build_context(
@@ -34,13 +35,9 @@ def load_context(payload: dict) -> tuple[TrialContext, list[dict]]:
     return ctx, parsed.task.get("graders", [])
 
 
-def load_judge_model(payload: dict):
-    return parse_trial_spec(payload["spec"]).judge_model
-
-
-# What may exist under trial_dir when the agent starts: the runner's workspace, out, home and tmp (HOME and TMPDIR of the
-# child, empty); prepare() then adds the harness's own home (hermes_home, memory). Anything else is a leak (R-10).
-_RUNNER_DIRS = frozenset({"workspace", "out", "home", "tmp"})
+# What may exist under trial_dir when the agent starts: the runner's workspace, out, home, tmp (HOME and TMPDIR of the
+# child, empty) and child (where its events and result go); prepare() then adds the harness's own home (hermes_home, memory). Anything else is a leak (R-10).
+_RUNNER_DIRS = frozenset({"workspace", "out", "home", "tmp", "child"})
 
 
 def consume_spec(spec_path: str) -> dict:
@@ -59,10 +56,10 @@ def assert_trial_dir_holds_no_extras(trial_dir: str) -> None:
 
 def main(spec_path: str) -> int:
     payload = consume_spec(spec_path)
-    ctx, graders = load_context(payload)
+    ctx, _ = load_context(payload)
     assert_trial_dir_holds_no_extras(ctx.trial_dir)
     adapter = load_registry()[payload["spec"]["harness"]]
-    out_dir = Path(ctx.trial_dir) / "out"
+    result_path = Path(payload["result_path"])
 
     adapter.prepare(ctx)
     started = time.monotonic()
@@ -70,19 +67,10 @@ def main(spec_path: str) -> int:
     run_ms = int((time.monotonic() - started) * 1000)
     memory = adapter.collect_memory(ctx)
 
-    result: dict = {
-        "run_result": dataclasses.asdict(run_result),
-        "memory_final": memory.files,
-        "run_ms": run_ms,
-    }
-    try:
-        result["grader_results"] = [g.to_dict() for g in run_graders(graders, ctx, run_result, load_judge_model(payload))]
-    except GraderError as e:
-        result["grader_error"] = str(e)
-
-    tmp = out_dir / "result.json.tmp"
+    result = {"run_result": dataclasses.asdict(run_result), "memory_final": memory.files, "run_ms": run_ms}
+    tmp = result_path.with_name(result_path.name + ".tmp")
     tmp.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, out_dir / "result.json")
+    os.replace(tmp, result_path)
     return 0
 
 

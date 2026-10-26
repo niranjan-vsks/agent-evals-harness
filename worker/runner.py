@@ -4,9 +4,10 @@ R-9 (WORKER_MAX_PARALLEL): run_trial admits at most that many attempts at once a
 beyond it, which the server turns into HTTP 429 (the API treats that as backpressure). Each running
 child is also registered in worker.active_trials so DELETE /trials/{id} can cancel it.
 
-Each attempt runs `python -m worker.run_one <spec>` as a fresh child process (R-1). The child
-streams events to out/events.jsonl and, if it gets as far as grading, writes out/result.json.
-The runner owns time (R-2) and builds the TrialResult from what is on disk (R-4).
+Each attempt runs `python -m worker.run_one <spec>` as a fresh child process (R-1). With WORKER_RUN_AS the child runs as that
+unprivileged user and cannot read the tasks or out/ (R-11): it streams events to child/events.jsonl and, when the harness
+returns, writes child/result.json. The runner, as root, copies the fixture in, collects both files into out/, grades, and owns
+time (R-2); it builds the TrialResult from what is on disk (R-4).
 """
 import json
 import os
@@ -20,9 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from worker import active_trials
-from worker.adapters.base import TrialContext
-from worker.graders import failed_for_timeout
+from worker import active_trials, privilege
+from worker.adapters.base import HarnessRunResult, TrialContext, Usage
+from worker.graders import GraderError, failed_for_timeout, run_graders
 from worker.graders.file_state import HIDDEN_DIR
 from worker.registry import load_registry
 from worker.spec import ParsedSpec, SpecError, build_context, parse_trial_spec
@@ -55,6 +56,7 @@ class RunnerConfig:
     kill_margin_seconds: float = 60.0   # R-2: kill at timeout_seconds + 60
     term_grace_seconds: float = 10.0    # R-2: SIGKILL after a SIGTERM grace of 10 s
     max_parallel: int = 4               # R-9: attempts admitted at once; the next one gets HTTP 429
+    run_as: str | None = None           # R-11: the unprivileged user the child runs as; None runs it as the worker's own user (tests, a dev host)
     python: str = field(default_factory=lambda: sys.executable)
 
     @staticmethod
@@ -66,6 +68,7 @@ class RunnerConfig:
             kill_margin_seconds=float(os.environ.get("RUNNER_KILL_MARGIN_SECONDS", "60")),
             term_grace_seconds=float(os.environ.get("RUNNER_TERM_GRACE_SECONDS", "10")),
             max_parallel=max(1, _int_env("WORKER_MAX_PARALLEL", 4)),
+            run_as=os.environ.get("WORKER_RUN_AS", "").strip() or None,
         )
 
 
@@ -240,14 +243,55 @@ def _first_system_prompt(events: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def _build_context(parsed: ParsedSpec, trial_dir: Path, fixture_abs: Path | None) -> TrialContext:
+def _build_context(parsed: ParsedSpec, trial_dir: Path, events_path: Path, fixture_abs: Path | None) -> TrialContext:
     return build_context(
         parsed,
         trial_dir=str(trial_dir),
         workspace_dir=str(trial_dir / "workspace"),
-        events_path=str(trial_dir / "out" / "events.jsonl"),
+        events_path=str(events_path),
         fixture_dir=str(fixture_abs) if fixture_abs else None,
     )
+
+
+def _child_view(spec: dict[str, Any]) -> dict[str, Any]:
+    """What the child may know (R-11): the spec without the graders and the judge model. The graders hold the expected answers
+    and run in the parent, as root, after the child has gone."""
+    return {**spec, "task": {k: v for k, v in spec["task"].items() if k != "graders"}, "judge_model": None}
+
+
+def _run_result_from_dict(d: dict[str, Any]) -> HarnessRunResult:
+    """The inverse of dataclasses.asdict, for the result the child wrote."""
+    return HarnessRunResult(**{**d, "usage": Usage(**d["usage"]), "skills_invoked": tuple(d["skills_invoked"]), "notes": tuple(d["notes"])})
+
+
+def _read_child_result(child_dir: Path) -> dict[str, Any] | None:
+    """child/result.json, or None when it is missing or malformed (then the attempt is a worker_crash, R-3): the child is not trusted
+    to write a well-formed file."""
+    raw = privilege.read_child_file(child_dir, "result.json")
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        _run_result_from_dict(data["run_result"])
+        data["memory_final"], data["run_ms"]
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError):
+        return None
+    return data
+
+
+def _hand_over(cfg: RunnerConfig, user: privilege.AgentUser, trial_dir: Path, spec_path: Path) -> None:
+    """R-11. The child owns workspace/, home/, tmp/ and child/ and may create its harness home beside them (trial_dir is sticky: it
+    cannot rename or remove what it does not own, so out/ stays where it is). out/ and everything root made stay root-only. trials/
+    is enter-only and specs/ is write-and-enter-only, so a shell cannot list the other trials that run in this worker."""
+    for sub in ("workspace", "home", "tmp", "child"):
+        privilege.chown_tree(trial_dir / sub, user)
+    os.chmod(trial_dir, 0o1777)
+    os.chmod(trial_dir / "out", 0o700)
+    os.chmod(cfg.work_dir / "trials", 0o711)
+    os.chmod(spec_path.parent, 0o1733)
+    os.chown(spec_path, user.uid, user.gid)  # it deletes this file itself (R-10) and it holds no grader (_child_view)
+    os.chmod(spec_path, 0o600)
+    privilege.assert_closed_to(user, [cfg.tasks_dir, trial_dir / "out"])
 
 
 class WorkerBusy(Exception):
@@ -346,27 +390,52 @@ def _run_admitted(spec: dict[str, Any], cfg: RunnerConfig) -> dict[str, Any]:
 
 
 def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir: Path, fixture_abs: Path | None, secrets: list[str]) -> dict[str, Any]:
-    for sub in ("workspace", "out", "home", "tmp"):
+    try:
+        user = privilege.resolve_user(cfg.run_as) if cfg.run_as else None
+    except privilege.PrivilegeError as e:
+        return _error_result(spec, "worker_crash", str(e))
+    for sub in ("workspace", "out", "home", "tmp", "child"):
         (trial_dir / sub).mkdir(parents=True, exist_ok=True)
     if fixture_abs is not None:
-        _copy_fixture(fixture_abs, trial_dir / "workspace")  # R-5
+        _copy_fixture(fixture_abs, trial_dir / "workspace")  # R-5, as root (R-11)
 
-    ctx = _build_context(parsed, trial_dir, fixture_abs)
-    # The spec holds the graders (expected answers, hidden-test names, regexes), so it never lives under trial_dir, where the
-    # agent's shell starts: it is written next to the trial dirs and the child deletes it as soon as it has read it (R-10).
+    out_dir = trial_dir / "out"
+    child_dir = trial_dir / "child"
+    # The child sees no grader (R-11) and its files are in child/, the one directory of the trial that is not root-only; the runner
+    # moves them into out/ once it is gone. The spec file (R-10) is still written outside every trial dir and deleted by the child.
+    child_ctx = build_context(
+        parsed,
+        trial_dir=str(trial_dir),
+        workspace_dir=str(trial_dir / "workspace"),
+        events_path=str(child_dir / "events.jsonl"),
+        fixture_dir=None,
+    )
     spec_path = _spec_path(cfg, parsed)
     spec_path.parent.mkdir(parents=True, exist_ok=True)
     spec_path.write_text(
-        json.dumps({"spec": spec, "paths": {"trial_dir": ctx.trial_dir, "workspace_dir": ctx.workspace_dir, "events_path": ctx.events_path, "fixture_dir": ctx.task.fixture_dir}}),
+        json.dumps(
+            {
+                "spec": _child_view(spec),
+                "paths": {"trial_dir": child_ctx.trial_dir, "workspace_dir": child_ctx.workspace_dir, "events_path": child_ctx.events_path, "fixture_dir": None},
+                "result_path": str(child_dir / "result.json"),
+            }
+        ),
         encoding="utf-8",
     )
+    if user is not None:
+        try:
+            _hand_over(cfg, user, trial_dir, spec_path)
+        except (privilege.PrivilegeError, OSError) as e:
+            return _error_result(spec, "worker_crash", f"R-11: could not hand the trial over to {user.name}: {e}")
+    ctx = _build_context(parsed, trial_dir, out_dir / "events.jsonl", fixture_abs)  # the parent's view, for the graders and the collected trace
 
-    out_dir = trial_dir / "out"
     started = time.monotonic()
     timed_out = False
     cancelled = False
     with open(out_dir / "child.stdout.log", "wb") as so, open(out_dir / "child.stderr.log", "wb") as se:
         popen_kwargs: dict[str, Any] = {}
+        if user is not None:
+            popen_kwargs.update(user=user.uid, group=user.gid, extra_groups=[])
         if os.name == "nt":
             popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
@@ -401,16 +470,25 @@ def _run_in_dir(spec, parsed: ParsedSpec, adapter, cfg: RunnerConfig, trial_dir:
             active_trials.unregister(parsed.trial_id, proc)
     wall_ms = int((time.monotonic() - started) * 1000)
 
+    raw_events = privilege.read_child_file(child_dir, "events.jsonl")
+    if raw_events is not None:
+        Path(ctx.events_path).write_bytes(raw_events)
     events = read_events(ctx.events_path)  # R-4: from disk, never from the child's memory
-    result_path = out_dir / "result.json"
     harness_info = {"id": adapter.id, "version": adapter.version}
 
-    if result_path.is_file():
-        child = json.loads(result_path.read_text(encoding="utf-8"))
-        if "grader_error" in child:
-            return _error_result(spec, "grader_error", _scrub(child["grader_error"], secrets), partial_trace=events)
+    child = _read_child_result(child_dir)
+    if child is not None:
+        # The workspace may have been swapped for a link by the agent; grade what is really there, as root (R-11).
+        workspace = Path(ctx.workspace_dir)
+        if workspace.is_symlink():
+            workspace.unlink()
+            workspace.mkdir()
         run = child["run_result"]
-        graders = child["grader_results"]
+        try:
+            graders = [g.to_dict() for g in run_graders(parsed.task.get("graders", []), ctx, _run_result_from_dict(run), parsed.judge_model)]  # R-7, in the parent
+        except GraderError as e:
+            return _error_result(spec, "grader_error", _scrub(str(e), secrets), partial_trace=events)
+        (out_dir / "result.json").write_text(json.dumps({**child, "grader_results": graders}, ensure_ascii=False), encoding="utf-8")
         if run["exit_reason"] == "agent_error":
             failure = _provider_failure(events)
             if failure is not None:
