@@ -12,6 +12,7 @@ import type {
   Harness,
   Model,
   PilotPayload,
+  SummaryPayload,
   Task,
   Trace,
   Trial,
@@ -100,6 +101,8 @@ const query = (params: Record<string, string | undefined>): string => {
 const id = encodeURIComponent;
 
 export const api = {
+  summary: () => request<SummaryPayload>('/summary'),
+
   listModels: () => request<Model[]>('/models'),
   listHarnesses: () => request<Harness[]>('/harnesses'),
   listTasks: () => request<Task[]>('/tasks'),

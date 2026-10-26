@@ -1,0 +1,5 @@
+empty dark: data-theme=dark overflow=0px nav=Overview*,Configs,Experiments tiles=absent text="No experiments yet. An experiment runs 2 or more configs over the same tasks and says whether one beats the other. Start by creating a config, then an experiment from 2 of them. Create a config" button href=/configs
+empty: "Create a config" leads to /configs
+empty dark console errors: none
+empty light: data-theme=light overflow=0px nav=Overview*,Configs,Experiments tiles=absent text="No experiments yet. An experiment runs 2 or more configs over the same tasks and says whether one beats the other. Start by creating a config, then an experiment from 2 of them. Create a config" button href=/configs
+empty light console errors: none

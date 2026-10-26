@@ -451,3 +451,68 @@ export interface PilotPayload {
   capped: boolean;
   stats_version: string;
 }
+
+// ---------------------------------------------------------------- summary (api/src/summary/summary.service.ts): the home dashboard
+
+export interface SummaryComparison {
+  comparison_run_id: string;
+  experiment_id: string;
+  experiment_name: string;
+  axis: string | null;
+  config_a_id: string;
+  config_a_name: string;
+  config_b_id: string;
+  config_b_name: string;
+  verdict: Verdict | 'insufficient_data';
+  delta: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  reliability: 'complete' | 'partial';
+  judge_policy_applied: JudgePolicy;
+  stats_version: string;
+  computed_at: string;
+}
+
+export interface SummaryConfig {
+  config_id: string;
+  name: string;
+  harness_id: string;
+  model_id: string;
+  memory_mode: string | null;
+  trials_done: number;
+  /** Macro: the mean over tasks of each task's pass rate (DESIGN 9.1), over done trials. */
+  pass_rate: number | null;
+  mean_cost_usd: number | null;
+  mean_latency_ms: number | null;
+  mean_input_tokens: number | null;
+  mean_output_tokens: number | null;
+}
+
+export interface SummaryExperiment {
+  id: string;
+  name: string;
+  status: ExperimentStatus;
+  n_trials: number;
+  progress: Progress;
+  created_at: string;
+}
+
+export interface SummaryPayload {
+  totals: {
+    experiments: number;
+    configs: number;
+    tasks_current: number;
+    trials_done: number;
+    trials_errored: number;
+    spend_usd: number;
+    models: number;
+    harnesses: number;
+  };
+  /** Newest 5, the newest persisted comparison_run of each (experiment, A, B) pair. */
+  latest_comparisons: SummaryComparison[];
+  configs: SummaryConfig[];
+  /** Done and failed trials per category, every category in rule order; `uncategorized` only when some have none. */
+  failures: Partial<Record<FailureCategory | 'uncategorized', number>>;
+  /** Newest 8. */
+  recent_experiments: SummaryExperiment[];
+}

@@ -50,7 +50,63 @@ experiment + README + video script. P6 failure categories (stretch). After P3 th
 submission is coherent without the UI.
 
 **Status.** P1 and P2 are done: all 5 gates of each passed (see the P2 section for the numbers and
-the isolated stack they ran on). P3 is done (its section is at the end of this file). P4 is done: all 5 gates passed (first section below). P6 is built and stopped at its section 9 condition (its section follows P7). P5 has run: the primary experiment (N = 3, 132 trials, 0 errored) and the secondary are finished and committed, README.md, VIDEO.md and the DESIGN 10.4, 10.5 and 12.2 drafts are written; it is waiting for the owner's 30 labels (see its section, Next action). P7 (UI visual layer) is done: all 5 gates passed (its section is first).
+the isolated stack they ran on). P3 is done (its section is at the end of this file). P4 is done: all 5 gates passed (first section below). P6 is built and stopped at its section 9 condition (its section follows P7). P5 has run: the primary experiment (N = 3, 132 trials, 0 errored) and the secondary are finished and committed, README.md, VIDEO.md and the DESIGN 10.4, 10.5 and 12.2 drafts are written; it is waiting for the owner's 30 labels (see its section, Next action). P7 (UI visual layer) is done: all 5 gates passed. P8 (home dashboard) is done: all 5 gates passed (its section is first).
+
+---
+
+## P8: Home dashboard (1 read-only summary endpoint, 1 view)
+
+Built on the same Windows 11 host in the OneDrive checkout. Host suites ran on a mirror outside OneDrive, `C:\hx\p8` (`sync.sh` there: robocopy of `api/`, `web/` and `tasks/` without `node_modules`, `dist`, `docs` and `src/generated`; `api/node_modules` a junction to the OneDrive one, `web/node_modules` a junction to `C:\hx\p6\wt\web\node_modules`, same `package-lock.json`; `npx prisma generate` run in the mirror, because the OneDrive `src/generated` predates migrations 0003 and 0004). The skills impeccable and ui-ux-pro-max were loaded before the view was written (Found 5). Every card section 10 default was used.
+
+### Shipped
+
+- **`GET /summary`** (`api/src/summary/`): `summary.service.ts` (pure helpers `macroMean`, `passOutcome`, `configRow`, `failureCounts`, `newestPerPair`, and `SummaryService`, which reads everything in 1 RepeatableRead transaction, `SNAPSHOT_TX` from `compare/service.ts`), `summary.controller.ts` (the controller and `SummaryModule`), `summary.spec.ts`. Shape, as card section 4 with 3 additions:
+  - `totals`: `experiments`, `configs`, `tasks_current` (`is_current` rows), `trials_done`, `trials_errored`, `spend_usd` (sum of `cost_usd` over done trials), `models` (model rows), `harnesses` (distinct harness ids).
+  - `latest_comparisons`: the newest `comparison_run` of each (experiment, A, B) pair, newest first, at most 5. Fields as the card plus `config_a_id`, `config_b_id` (the Compare link needs `?a=&b=`) and `stats_version` (a stored row can predate 1.1.0). The verdict, delta, interval and reliability are read from the stored `result.aggregate`; nothing is recomputed.
+  - `configs`: every config, sorted by name. `pass_rate` is the macro average of DESIGN 9.1 (per task, the mean of the scored done trials; then the mean over tasks), the arithmetic of `compare.ts` for `p_a` and `p_b`. `mean_cost_usd`, `mean_latency_ms`, `mean_input_tokens` and `mean_output_tokens` use the same macro mean (as `compare.ts` does for its metrics). A done trial with `passed` null counts in `trials_done` and in the means but not in `pass_rate`. `memory_mode` is `settings.memory.mode`.
+  - `failures`: every category in rule order (0 included), plus `uncategorized` only when a failed done trial has no category.
+  - `recent_experiments`: newest 8; `n_trials` is trials per cell (as `GET /experiments`); `progress` is the same object `GET /experiments` returns (with `cancelled` and `total`).
+- `api/src/app.module.ts`: `SummaryModule` registered (1 import line and 1 array entry). This file is outside the owned list; there is no other way to mount the endpoint.
+- **`web/src/views/OverviewView.vue`** at `/`, top to bottom: page head with Refresh and the load time; row 1, 6 totals in 1 surface split by hairlines (experiments with configs, models and harnesses beneath; trials done; spend as `0.11 USD` with the exact `0.109366 USD` beneath; best pass rate with the config name; errored trials; current tasks), count-up on first render; row 2, "Latest verdicts" as rows of 1 panel (experiment link, A vs B, axis, delta with its interval bar, verdict pill and the margin sentence, reliability and judge badges, stats version and time, "Open Compare" to `/experiments/:id/compare?a=&b=`); row 3, pass rate per config as horizontal SVG bars (sorted, value labels, best config in the accent) and mean cost (x, USD) against pass rate (y) as a labelled SVG scatter; row 4, failure categories as a bar list (non-zero rows, sorted, the rule on hover, the total) and the recent experiments in `DataTable` (status chip, `finished / total` with the progress bar, whole-row link). Empty state at 0 experiments: 2 sentences and a "Create a config" button to `/configs`. Fetched once on mount; no polling. Each verdict is checked against its interval exactly as `CompareView` does (copied, 12-decimal rounding): "noise" only when the interval contains 0, otherwise "payload inconsistent".
+- `web/src/router.ts`: `/` is the Overview (the redirect to `/configs` is gone; `/configs` is unchanged). `AppShell.vue`: an "Overview" nav link first, and its comment. `web/src/api/types.ts` (`SummaryPayload` and its parts) and `client.ts` (`api.summary()`).
+- Tests: `summary.spec.ts` 8 (6 pure, 2 against the database); `OverviewView.spec.ts` 11.
+- `web/docs/walk-p8/`: 7 screenshots (`dark-` and `light-` times `1440-overview` and `1024-overview`, `dark-1440-compare-primary`, `dark-empty`, `light-empty`), `walk-report.txt` and `walk-report-empty.txt`.
+
+### Verified
+
+| Gate | Result |
+|---|---|
+| 1 Harness, API | Mirror, `node scripts/run-tests.mjs` (embedded PostgreSQL 16, no `E2E_PYTHON`): `Test Suites: 1 skipped, 37 passed, 37 of 38 total`, `Tests: 3 skipped, 734 passed, 737 total`, exit 0: **734 of 734** that can run (the 3 skipped are the real-Hermes stub walk). Before: 726 (Audit fixes (code)); 8 new. A first full run, with Vitest running at the same time on this host, timed out 3 tests (1 in `compare.e2e.spec.ts`, 2 in `summary.spec.ts`, each over 60 s; the read-only test then saw 2 rows written late by the timed-out one); the rerun alone passed all of them. `npx tsc --noEmit` exit 0. |
+| 1 Harness, web | Mirror, `vitest run`: **253 of 253**, 13 files: the 242 of P7, unchanged and green, plus 11 new. |
+| 1 Mutation test | In the mirror, `pass_rate: macroMean(done, passOutcome)` was replaced by the raw mean of the scored trials. `summary.spec.ts`: **2 failed, 6 passed**: "pass_rate equals the p_a and p_b of compare.ts on the same trials" (expected 0.4444444444444444, received 0.3333333333333333) and the database test (expected 0.8333333333333334, Compare's `p_a`, received 0.8). Restored from a copy: sha256 `498d7b351b63c396c0d95e977cd596fceb16c4ea76022de88a5a16a0339d4541` before and after, equal to the OneDrive file; 8 of 8 again. |
+| 2 Audit | `api/` and `web/` copied into `C:\hx\p5src` (robocopy), `docker compose -p p5run -f C:/hx/p5src/docker-compose.yml build api web` (classic builder): the web build stage printed `Test Files 13 passed (13)`, `Tests 253 passed (253)`, then `vite build`; exit 0. The web image was rebuilt the same way after each of 2 layout fixes found in the walk: same counts, exit 0. |
+| 3 Typecheck and build | `vue-tsc --noEmit` exit 0; `vite build` exit 0 (CSS 40.96 kB, JS 226.61 kB, 76.80 kB gzip); API `tsc --noEmit` exit 0. 0 em-dashes and 0 en-dashes in `api/src` and `web/src` (ripgrep). |
+| 4 and 5 The walk | A dump of the P5 database was taken first (`C:\hx\p8\p5run-pre-p8.dump`). `docker compose -p p5run ... up -d --no-deps api web` (db and worker untouched; the api applied migration 0004 at start). Headless Chrome through `playwright-core` (`C:\hx\p8\walk.mjs`) on `http://localhost:8280`, dark and light at 1,440 and 1,024 px: 4 of 4 pages with 0 px horizontal overflow, the right `data-theme`, Overview active in the nav, 0 console errors. Real totals: 2 experiments, 3 configs, 2 models, 2 harnesses, 264 trials done, 0 errored, spend 0.109366 USD, 22 tasks; best pass rate 0.894 (`hermes memory seeded`); 85 failed trials (judge_criteria_unmet 37, abstained 20, step_exhaustion 10, wrong_tool_usage 6, wrong_answer 6, no_final_answer 5, tool_error_unrecovered 1, as the P6 backfill). The primary experiment's card, followed through its own link to Compare, in both themes: interval `-0.314 [-0.549, -0.098]` on both, verdict `B better by 0.314 [0.098, 0.549]` on both, reliability complete and judge policy excluded on both. **Empty database:** the default stack is not empty (124 experiments) and was not wiped; an isolated project `p8empty` (`C:\hx\p8\empty\compose.yml`: fresh postgres, the new api and web images, no worker, web on 127.0.0.1:8380) showed the empty state in both themes, no tiles, 0 console errors, and "Create a config" led to `/configs`. Torn down with `down -v`. |
+
+### Cut on purpose
+
+- Everything in the card's out-of-scope list: no time filter, no polling (a Refresh button, card 10.3), no chart library, no metric beyond section 4.
+- No route transitions or page-load choreography; the only motion is the existing count-up.
+- The wordmark still links to `/experiments` (it is not the nav entry, which is all this phase owns of `AppShell.vue`).
+
+### Found but not fixed
+
+1. **The Overview's config pass rate is not the Compare page's `p_a` or `p_b` for the P5 configs, by design, and labelled so.** It covers every done trial of the config in every experiment, judged tasks included; Compare covers 1 experiment and withholds the judged tasks under policy `excluded`. `hermes memory off` ran in both P5 experiments (132 trials): Overview 0.568, primary Compare 0.667. The bar chart's caption says this. The equality is exact when a config ran in 1 experiment with no judge exclusion (the database test). Excluding judged tasks here would need a judge policy per config, which is a property of a comparison, not of a config (card section 9), so it was not done.
+2. **Verdicts exist only where a comparison was persisted.** The Compare page does not persist (`GET .../compare` without `persist`); exports do. The 2 P5 rows were written on 2026-10-25 under `stats_version` 1.0.0; their headline numbers equal today's live Compare (gate 4). The card prints the version.
+3. **The 2 P5 verdicts read "judge: excluded"** in the fail colour: correct until the 30 labels exist.
+4. `app.module.ts` was edited (Shipped) although it is not in the owned list.
+5. **Skills:** impeccable reported `NO_PRODUCT_MD` and asks for a `PRODUCT.md` first; not written (outside the owned paths, as in P7 Found 4). ui-ux-pro-max's chart search gave: sorted bars with value labels, and a text alternative for the scatter (done as an `aria-label` listing every point). Its CLI needs `PYTHONIOENCODING=utf-8` on this host.
+6. **`p5run` now runs this tree's api** (migration 0004 applied to the P5 database, and the audit-fix code); its worker is still the old image with the old compose mounts (Audit fixes (code), Found 1), untouched. The api and web images were built from a robocopy of the working tree, not from `git archive`.
+7. Not done: ESLint, Prettier, a screen-reader pass. The walk was scripted headless Chrome (the playwright MCP server timed out at session start).
+
+### Assumptions resolved
+
+- No A-id. Card 10.1 (tie for best config): more done trials, then name; tested. 10.2 (scatter with 1 config): drawn with 1 labelled point (no special case in the code). 10.3 (polling): fetch on mount and a Refresh button; tested.
+- Readings taken: "newest 5 from comparison_run" as the newest row of each (experiment, A, B) pair, so an older snapshot of a pair never sits next to its current one; "spend" as done trials only (card section 4); `n_trials` as trials per cell, as everywhere else in the API.
+
+### Next action
+
+P8 is done; nothing is committed. To rebuild `p5run` after a later change: robocopy `api/` and `web/` into `C:\hx\p5src` (or `git archive HEAD api web | tar -x -C /c/hx/p5src`), then `docker compose -p p5run -f C:/hx/p5src/docker-compose.yml up -d --build --no-deps api web` with the Docker variables set. Host tests: `bash /c/hx/p8/sync.sh`, then `node scripts/run-tests.mjs` in `C:\hx\p8\api` (on its own: Vitest in parallel times tests out on this host) and `npx vitest run` in `C:\hx\p8\web`.
 
 ---
 

@@ -1,0 +1,16 @@
+totals: {"experiments":2,"configs":3,"tasks_current":22,"trials_done":264,"trials_errored":0,"spend_usd":0.109366,"models":2,"harnesses":2}
+dark 1440px overview: data-theme=dark overflow=0px body bg=rgb(11, 18, 32) nav=Overview*,Configs,Experiments
+tiles: Experiments=2 (3 configs, 2 models, 2 harnesses) | Trials done=264 (graded or ungraded, all experiments) | Spend=0.11 USD (0.109366 USD over done trials) | Best pass rate=0.894 (hermes memory seeded) | Errored trials=0 (never scored, counted apart) | Tasks=22 (current versions)
+dark card:    interval "-0.314 [-0.549, -0.098]" verdict "B better by 0.314 [0.098, 0.549]" badges "reliability: complete, judge: excluded"
+dark compare: interval "-0.314 [-0.549, -0.098]" verdict "B better by 0.314 [0.098, 0.549]" badges "reliability: complete, judge policy: excluded, rate-limit affected trials: 0"
+dark interval equal: true; verdict equal: true
+dark 1440px console errors: none
+dark 1024px overview: data-theme=dark overflow=0px body bg=rgb(11, 18, 32) nav=Overview*,Configs,Experiments
+dark 1024px console errors: none
+light 1440px overview: data-theme=light overflow=0px body bg=rgb(246, 248, 251) nav=Overview*,Configs,Experiments
+light card:    interval "-0.314 [-0.549, -0.098]" verdict "B better by 0.314 [0.098, 0.549]" badges "reliability: complete, judge: excluded"
+light compare: interval "-0.314 [-0.549, -0.098]" verdict "B better by 0.314 [0.098, 0.549]" badges "reliability: complete, judge policy: excluded, rate-limit affected trials: 0"
+light interval equal: true; verdict equal: true
+light 1440px console errors: none
+light 1024px overview: data-theme=light overflow=0px body bg=rgb(246, 248, 251) nav=Overview*,Configs,Experiments
+light 1024px console errors: none

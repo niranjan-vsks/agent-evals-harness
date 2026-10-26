@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// The app shell (cards/P7.md section 3): a 56 px top bar with the wordmark, the 2 nav links, the API base and the theme
-// toggle, then the page content centred at most 1,440 px wide. The API base field is the one P4 had in App.vue.
+// The app shell (cards/P7.md section 3): a 56 px top bar with the wordmark, the 3 nav links (Overview first, P8), the API
+// base and the theme toggle, then the page content centred at most 1,440 px wide. The API base field is the one P4 had in App.vue.
 import { ref } from 'vue';
 import { useAppStore } from '../stores/app';
 import ThemeToggle from './ThemeToggle.vue';
@@ -19,6 +19,7 @@ function applyBase() {
     <div class="topbar-inner">
       <RouterLink to="/experiments" class="wordmark">Agent Evals</RouterLink>
       <nav class="nav" aria-label="Main">
+        <RouterLink to="/" class="nav-link">Overview</RouterLink>
         <RouterLink to="/configs" class="nav-link">Configs</RouterLink>
         <RouterLink to="/experiments" class="nav-link">Experiments</RouterLink>
       </nav>
