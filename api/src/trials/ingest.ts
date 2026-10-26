@@ -42,8 +42,12 @@ export function cachedPrice(price: PriceSnapshot): number {
   return price.cached_input_price_per_mtok ?? price.input_price_per_mtok;
 }
 
-/** What the failure rules need to know about the task and the config (P6 card section 4); the trace and graders come from the result. */
+/**
+ * What a done result is checked and categorized against: the task's grader count (the worker must return 1 row per grader) and what
+ * the failure rules need to know about the task and the config (P6 card section 4); the trace and graders come from the result.
+ */
 export interface FailureTask {
+  graderCount: number;
   taskCategory: string;
   taskFixtureDir: string | null;
   memoryMode: 'off' | 'seeded';
@@ -117,8 +121,9 @@ export function erroredResult(errorClass: ErrorClass, message: string, partial: 
 }
 
 /**
- * `task` is needed only for a done result that failed: the failure rules read the task category, its fixture and the config's
- * memory mode. A caller that omits it for such a result is a programming error and is refused loudly rather than guessed at.
+ * `task` is needed for every done result: its grader count is checked against the result, and the failure rules read the task
+ * category, its fixture and the config's memory mode. A caller that omits it for such a result is a programming error and is
+ * refused loudly rather than guessed at. An errored result needs none (a spec that could not be built has no task).
  */
 export function ingest(result: TrialResult, price: PriceSnapshot, task?: FailureTask): IngestedTrial {
   if (result.status === 'errored') {
@@ -153,6 +158,11 @@ export function ingest(result: TrialResult, price: PriceSnapshot, task?: Failure
   if (!EXIT_REASONS.includes(outcome.exit_reason)) throw new IngestError(`unknown exit_reason ${outcome.exit_reason}`);
   if (typeof result.passed !== 'boolean') throw new IngestError('a done result needs passed (D-11)');
   if (result.grader_results.length === 0) throw new IngestError('a done result needs at least 1 grader result');
+  if (!task) throw new IngestError('a done result needs the task context (its grader count, and the failure rules) (P6)');
+  // D-14 is the AND over the rows given: a row missing for a failing grader would store a failed trial as passed.
+  if (result.grader_results.length !== task.graderCount) {
+    throw new IngestError(`the task has ${task.graderCount} graders but the result carries ${result.grader_results.length} grader results`);
+  }
 
   for (const g of result.grader_results) {
     const judge = g.grader_type === 'llm_judge';
@@ -171,10 +181,7 @@ export function ingest(result: TrialResult, price: PriceSnapshot, task?: Failure
   }
 
   let failure: Categorized | null = null;
-  if (!result.passed) {
-    if (!task) throw new IngestError('a failed done result needs the task context to be categorized (P6)');
-    failure = categorizeFailure(result, task);
-  }
+  if (!result.passed) failure = categorizeFailure(result, task);
 
   const u = outcome.usage;
   const harnessCost = outcome.harness_reported_cost_usd;

@@ -5,7 +5,7 @@ import { TrialSpec } from '../worker-client/types';
 
 const PRICE = { input_price_per_mtok: 0.018, output_price_per_mtok: 0.09 };
 
-const TASK: FailureTask = { taskCategory: 'neutral_deterministic', taskFixtureDir: 'fixtures/x', memoryMode: 'off' };
+const TASK: FailureTask = { graderCount: 1, taskCategory: 'neutral_deterministic', taskFixtureDir: 'fixtures/x', memoryMode: 'off' };
 
 const spec = {
   trial_id: 'T1',
@@ -55,7 +55,7 @@ describe('costUsd', () => {
 
 describe('ingest', () => {
   it('maps a passing trial and computes cost from the snapshot', () => {
-    const r = ingest(doneResult(spec), PRICE);
+    const r = ingest(doneResult(spec), PRICE, TASK);
     expect(r.status).toBe('done');
     expect(r.passed).toBe(true);
     expect(r.exitReason).toBe('completed');
@@ -72,11 +72,11 @@ describe('ingest', () => {
     const cached = doneResult(spec);
     cached.outcome!.usage.cache_read_tokens = 2_000_000;
     const price = { ...PRICE, cached_input_price_per_mtok: 0.009 };
-    expect(ingest(cached, price).costUsd?.toString()).toBe('0.018058'); // 0.000058 + 2 x 0.009
-    expect(ingest(cached, PRICE).costUsd?.toString()).toBe('0.036058'); // no cached price: the input price, 0.000058 + 2 x 0.018
+    expect(ingest(cached, price, TASK).costUsd?.toString()).toBe('0.018058'); // 0.000058 + 2 x 0.009
+    expect(ingest(cached, PRICE, TASK).costUsd?.toString()).toBe('0.036058'); // no cached price: the input price, 0.000058 + 2 x 0.018
     const none = doneResult(spec);
     none.outcome!.usage.cache_read_tokens = null as unknown as number;
-    expect(ingest(none, price).costUsd?.toString()).toBe('0.000058');
+    expect(ingest(none, price, TASK).costUsd?.toString()).toBe('0.000058');
   });
 
   it('keeps a timed-out trial as a scored failure (R-2)', () => {
@@ -107,20 +107,46 @@ describe('ingest', () => {
       bad.trace!.memory_initial = { 'MEMORY.md': 'ingest is owned by Marco' };
       bad.trace!.final_response = 'FINAL: Priya';
       bad.trace!.events.push({ seq: 7, t_ms: 7, kind: 'memory_read', file: 'MEMORY.md', content: 'x', loaded_by: 'harness' });
-      const seeded: FailureTask = { taskCategory: 'memory_dependent', taskFixtureDir: null, memoryMode: 'seeded' };
+      const seeded: FailureTask = { graderCount: 1, taskCategory: 'memory_dependent', taskFixtureDir: null, memoryMode: 'seeded' };
       expect(ingest(bad, PRICE, seeded).failure).toMatchObject({ category: 'memory_ignored', evidence: { rule: 10, event_seq: 7 } });
       expect(ingest(bad, PRICE, { ...seeded, memoryMode: 'off' }).failure?.category).toBe('wrong_answer');
     });
 
     it('a passed result and an errored result have no category', () => {
       expect(ingest(doneResult(spec), PRICE, TASK).failure).toBeNull();
-      expect(ingest(doneResult(spec), PRICE).failure).toBeNull();
       expect(ingest(erroredResult('worker_crash', 'x'), PRICE, TASK).failure).toBeNull();
     });
 
-    it('refuses a failed done result when the task context is missing, rather than guessing', () => {
+    it('refuses a done result, failed or passed, when the task context is missing, rather than guessing', () => {
       expect(() => ingest(doneResult(spec, {}, 'timeout'), PRICE)).toThrow(IngestError);
       expect(() => ingest(doneResult(spec, {}, 'timeout'), PRICE)).toThrow(/task context/);
+      expect(() => ingest(doneResult(spec), PRICE)).toThrow(/task context/);
+    });
+  });
+
+  describe('grader count (audit D-6)', () => {
+    const withGraders = (n: number) => {
+      const r = doneResult(spec);
+      r.grader_results = Array.from({ length: n }, (_, i) => ({ ...r.grader_results[0], grader_index: i }));
+      return r;
+    };
+
+    it('accepts a result with exactly as many results as the task has graders', () => {
+      expect(ingest(withGraders(1), PRICE, TASK).graders).toHaveLength(1);
+      expect(ingest(withGraders(3), PRICE, { ...TASK, graderCount: 3 }).graders).toHaveLength(3);
+    });
+
+    it('rejects too few results: a missing row for a failing grader would store a failed trial as passed', () => {
+      expect(() => ingest(withGraders(1), PRICE, { ...TASK, graderCount: 2 })).toThrow(IngestError);
+      expect(() => ingest(withGraders(1), PRICE, { ...TASK, graderCount: 2 })).toThrow(/2 graders but the result carries 1/);
+    });
+
+    it('rejects too many results', () => {
+      expect(() => ingest(withGraders(2), PRICE, TASK)).toThrow(/1 graders but the result carries 2/);
+    });
+
+    it('an errored result has no grader rows and needs no task context', () => {
+      expect(ingest(erroredResult('worker_crash', 'x'), PRICE).graders).toEqual([]);
     });
   });
 
@@ -144,16 +170,16 @@ describe('ingest', () => {
   it('D-14: rejects a result whose passed is not the AND of its graders', () => {
     const bad = doneResult(spec, { passed: false });
     bad.grader_results[0].passed = true;
-    expect(() => ingest(bad, PRICE)).toThrow(IngestError);
+    expect(() => ingest(bad, PRICE, TASK)).toThrow(IngestError);
     const bad2 = doneResult(spec, {}, 'completed');
     bad2.grader_results.push({ ...bad2.grader_results[0], grader_index: 1, passed: false });
-    expect(() => ingest(bad2, PRICE)).toThrow(/D-14/);
+    expect(() => ingest(bad2, PRICE, { ...TASK, graderCount: 2 })).toThrow(/D-14/);
   });
 
   it('accepts a multi-grader result only when every grader passed', () => {
     const ok = doneResult(spec);
     ok.grader_results.push({ ...ok.grader_results[0], grader_index: 1 });
-    expect(ingest(ok, PRICE).passed).toBe(true);
+    expect(ingest(ok, PRICE, { ...TASK, graderCount: 2 }).passed).toBe(true);
   });
 
   it('D-13 and D-11 shapes: errored needs a class, done needs passed and a trace', () => {
@@ -167,19 +193,19 @@ describe('ingest', () => {
     const bad = doneResult(spec, {}, 'timeout');
     bad.passed = true;
     bad.grader_results[0].passed = true;
-    expect(() => ingest(bad, PRICE)).toThrow(/timed-out/);
+    expect(() => ingest(bad, PRICE, TASK)).toThrow(/timed-out/);
   });
 
   it('requires judge fields exactly for llm_judge graders', () => {
     const bad = doneResult(spec);
     bad.grader_results[0].grader_type = 'llm_judge';
-    expect(() => ingest(bad, PRICE)).toThrow(IngestError);
+    expect(() => ingest(bad, PRICE, TASK)).toThrow(IngestError);
   });
 
   it('rejects a trace above 5 MB', () => {
     const big = doneResult(spec);
     big.trace!.events[1].content = 'x'.repeat(MAX_TRACE_BYTES + 1);
-    expect(() => ingest(big, PRICE)).toThrow(/larger than/);
+    expect(() => ingest(big, PRICE, TASK)).toThrow(/larger than/);
   });
 });
 

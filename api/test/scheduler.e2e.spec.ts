@@ -11,6 +11,7 @@ import { AppModule } from '../src/app.module';
 import { ExperimentsService } from '../src/experiments/service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { Scheduler } from '../src/scheduler/scheduler';
+import { doneResult } from '../src/test-support/app';
 import { WorkerClient } from '../src/worker-client/worker-client';
 import { FakeWorkerServer } from './fake-worker';
 import { Fixtures, PLACEHOLDER_PRICE, waitFor } from './helpers';
@@ -516,6 +517,29 @@ describe('scheduler against the fake worker (P3 gate 1)', () => {
         expect(t.attempts.every((a) => a.endedAt !== null)).toBe(true);
         expect(await status(ex.id)).toBe('partial');
         expect(call).toHaveBeenCalledTimes(3);
+      } finally {
+        call.mockRestore();
+      }
+    });
+
+    it('a done result with fewer grader rows than the task has graders is worker_crash and is retried like any worker_crash (audit D-6)', async () => {
+      await fx.tasks(['sce-40-two-graders'], [{ type: 'exact_match', expected: '8081' }, { type: 'exact_match', expected: '8081' }]);
+      // doneResult carries 1 grader row, as a worker that dropped a row would
+      const call = jest.spyOn(app.get(WorkerClient), 'runTrial').mockImplementation(async (spec) => doneResult(spec));
+      try {
+        const ex = await fx.experiment({ configIds: [cfgA], taskIds: ['sce-40-two-graders'] });
+        const id = ex.trialIds[0];
+        expect(await round()).toBe(1);
+        let t = await trial(id);
+        expect(t).toMatchObject({ status: 'pending', errorClass: 'worker_crash', attemptCount: 1, passed: null });
+        expect(t.errorMessage).toMatch(/^worker result rejected: the task has 2 graders but the result carries 1/);
+        expect(t.attempts.map((a) => [a.result, a.endedAt !== null])).toEqual([['errored', true]]);
+
+        advance(31_000); // the worker_crash backoff
+        expect(await round()).toBe(1);
+        t = await trial(id);
+        expect(t).toMatchObject({ status: 'pending', errorClass: 'worker_crash', attemptCount: 2 });
+        expect(call).toHaveBeenCalledTimes(2);
       } finally {
         call.mockRestore();
       }

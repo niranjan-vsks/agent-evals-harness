@@ -52,6 +52,8 @@ describe('Scheduler (database, in-process worker)', () => {
       'scu-13-mid-ok',
       'scu-21-big',
     ]);
+    // 2 graders, so a result of 2 rows passes the grader-count check of ingest and reaches the database (see duplicateGraders)
+    await fx.tasks(['scu-31-two-graders'], [{ type: 'exact_match', expected: '8081' }, { type: 'exact_match', expected: '8081' }]);
   });
   afterAll(async () => {
     await fx.cleanup();
@@ -235,7 +237,7 @@ describe('Scheduler (database, in-process worker)', () => {
   });
 
   describe('a result that cannot be stored', () => {
-    /** 2 grader rows with the same grader_index: ingest accepts it, the unique key on grader_result does not. */
+    /** 2 grader rows with the same grader_index, for the 2-grader task: ingest accepts it, the unique key on grader_result does not. */
     const duplicateGraders = (spec: TrialSpec): TrialResult => {
       const r = doneResult(spec);
       r.grader_results = [r.grader_results[0], { ...r.grader_results[0] }];
@@ -252,7 +254,7 @@ describe('Scheduler (database, in-process worker)', () => {
 
     it('is settled as errored worker_crash through the retry routing: a tick requeues it', async () => {
       worker.answer = duplicateGraders;
-      const ex = await exp(['scu-01-ok']);
+      const ex = await exp(['scu-31-two-graders']);
       expect(await scheduler.tick()).toBe(1);
       await scheduler.idle();
       const t = await trial(ex.trialIds[0]);
@@ -266,7 +268,7 @@ describe('Scheduler (database, in-process worker)', () => {
 
     it('runNow has no retry, so the trial is terminal at once and the caller is not told of an error', async () => {
       worker.answer = duplicateGraders;
-      const ex = await exp(['scu-01-ok']);
+      const ex = await exp(['scu-31-two-graders']);
       await scheduler.runNow(ex.trialIds[0]);
       const t = await trial(ex.trialIds[0]);
       expect(t).toMatchObject({ status: 'errored', errorClass: 'worker_crash' });

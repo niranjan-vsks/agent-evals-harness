@@ -70,7 +70,7 @@ export async function buildSpecAndContext(prisma: PrismaService, c: ClaimedTrial
     throw e;
   }
 
-  const failureTask: FailureTask = { taskCategory: task.category, taskFixtureDir: task.fixtureDir, memoryMode: settings.memory?.mode === 'seeded' ? 'seeded' : 'off' };
+  const failureTask: FailureTask = { graderCount: (task.graders as unknown[]).length, taskCategory: task.category, taskFixtureDir: task.fixtureDir, memoryMode: settings.memory?.mode === 'seeded' ? 'seeded' : 'off' };
   const spec: TrialSpec = {
     trial_id: c.trialId,
     attempt: c.attemptNo,
@@ -116,7 +116,7 @@ export async function runOnWorker(
   worker: Pick<WorkerClient, 'runTrial'>,
   spec: TrialSpec,
   price: PriceSnapshot,
-  failureTask?: FailureTask,
+  failureTask: FailureTask,
 ): Promise<WorkerOutcome> {
   let result: TrialResult;
   try {

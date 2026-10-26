@@ -3,12 +3,14 @@ import { AddressInfo } from 'node:net';
 import { Fixtures } from '../../test/helpers';
 import { PrismaService } from '../prisma/prisma.service';
 import { doneResult } from '../test-support/app';
-import { erroredResult, MAX_TRACE_BYTES } from '../trials/ingest';
+import { erroredResult, FailureTask, MAX_TRACE_BYTES } from '../trials/ingest';
+import { decideRetry } from './retry-policy';
 import { TrialResult, TrialSpec } from '../worker-client/types';
 import { WorkerClient, WorkerUnavailableError } from '../worker-client/worker-client';
 import { buildSpec, ClaimedTrial, runOnWorker, SpecBuildError, workerHttpStatus } from './dispatch';
 
 const PRICE = { input_price_per_mtok: 1, output_price_per_mtok: 2 };
+const TASK: FailureTask = { graderCount: 1, taskCategory: 'neutral_deterministic', taskFixtureDir: null, memoryMode: 'off' };
 
 function specOf(over: Partial<TrialSpec> = {}): TrialSpec {
   return {
@@ -80,31 +82,31 @@ describe('workerHttpStatus', () => {
 describe('runOnWorker failure mapping', () => {
   it('HTTP 429 is backpressure', async () => {
     const e = new WorkerUnavailableError('worker /trials/run answered HTTP 429: {"detail":"worker at capacity"}');
-    const o = await runOnWorker(workerThrowing(e), specOf(), PRICE);
+    const o = await runOnWorker(workerThrowing(e), specOf(), PRICE, TASK);
     expect(o.ingested).toMatchObject({ status: 'errored', errorClass: 'backpressure', errorMessage: e.message });
     expect(o.maxAttempts).toBeUndefined();
   });
 
   it('any other HTTP error or a refused connection is worker_crash with the client message', async () => {
     for (const msg of ['worker /trials/run answered HTTP 500: boom', 'worker /trials/run: fetch failed']) {
-      const o = await runOnWorker(workerThrowing(new WorkerUnavailableError(msg)), specOf(), PRICE);
+      const o = await runOnWorker(workerThrowing(new WorkerUnavailableError(msg)), specOf(), PRICE, TASK);
       expect(o.ingested).toMatchObject({ status: 'errored', errorClass: 'worker_crash', errorMessage: msg });
     }
   });
 
   it('a non-client error is worker_crash "worker call failed"', async () => {
-    const o = await runOnWorker(workerThrowing(new Error('boom')), specOf(), PRICE);
+    const o = await runOnWorker(workerThrowing(new Error('boom')), specOf(), PRICE, TASK);
     expect(o.ingested).toMatchObject({ errorClass: 'worker_crash', errorMessage: 'worker call failed: boom' });
   });
 
   it('an errored TrialResult keeps its own error_class', async () => {
     const r: TrialResult = { ...erroredResult('rate_limited', 'provider said 429'), trial_id: 'T1', attempt: 1 };
-    const o = await runOnWorker(workerReturning(r), specOf(), PRICE);
+    const o = await runOnWorker(workerReturning(r), specOf(), PRICE, TASK);
     expect(o.ingested).toMatchObject({ status: 'errored', errorClass: 'rate_limited', errorMessage: 'provider said 429' });
   });
 
   it('a done result is ingested with the cost from the price given', async () => {
-    const o = await runOnWorker(workerReturning(doneResult(specOf())), specOf(), { input_price_per_mtok: 3, output_price_per_mtok: 4 });
+    const o = await runOnWorker(workerReturning(doneResult(specOf())), specOf(), { input_price_per_mtok: 3, output_price_per_mtok: 4 }, TASK);
     expect(o.ingested.status).toBe('done');
     expect(Number(o.ingested.costUsd)).toBeCloseTo((3000 * 3 + 40 * 4) / 1e6, 9);
   });
@@ -112,7 +114,7 @@ describe('runOnWorker failure mapping', () => {
   it('a result the API cannot store (D-14) is worker_crash "worker result rejected", with the trace kept as the partial trace', async () => {
     const bad = doneResult(specOf(), { passed: true });
     bad.grader_results[0].passed = false;
-    const o = await runOnWorker(workerReturning(bad), specOf(), PRICE);
+    const o = await runOnWorker(workerReturning(bad), specOf(), PRICE, TASK);
     expect(o.ingested.status).toBe('errored');
     expect(o.ingested.errorClass).toBe('worker_crash');
     expect(o.ingested.errorMessage).toMatch(/^worker result rejected: D-14/);
@@ -120,10 +122,18 @@ describe('runOnWorker failure mapping', () => {
     expect(o.maxAttempts).toBeUndefined();
   });
 
+  it('a result whose grader count differs from that of the task is worker_crash "worker result rejected", and worker_crash is retried', async () => {
+    const o = await runOnWorker(workerReturning(doneResult(specOf())), specOf(), PRICE, { ...TASK, graderCount: 2 });
+    expect(o.ingested).toMatchObject({ status: 'errored', errorClass: 'worker_crash', passed: null });
+    expect(o.ingested.errorMessage).toMatch(/^worker result rejected: the task has 2 graders but the result carries 1/);
+    expect(o.maxAttempts).toBeUndefined();
+    expect(decideRetry('worker_crash', 1, { maxAttempts: o.maxAttempts }).retry).toBe(true);
+  });
+
   it('an oversized trace is worker_crash that may be retried once (maxAttempts 2)', async () => {
     const big = doneResult(specOf());
     big.trace!.events = [{ seq: 0, t_ms: 0, kind: 'message', content: 'x'.repeat(MAX_TRACE_BYTES + 10) }];
-    const o = await runOnWorker(workerReturning(big), specOf(), PRICE);
+    const o = await runOnWorker(workerReturning(big), specOf(), PRICE, TASK);
     expect(o.ingested).toMatchObject({ status: 'errored', errorClass: 'worker_crash' });
     expect(o.ingested.errorMessage).toMatch(/^worker result rejected: trace is larger than/);
     expect(o.maxAttempts).toBe(2);

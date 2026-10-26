@@ -10,7 +10,7 @@ import { isD8Violation, reconcileExperiments, refreshExperimentStatus, settleOrp
 
 const PRICE = { input_price_per_mtok: 1, output_price_per_mtok: 2 };
 const NOW = new Date('2030-01-01T00:00:00.000Z');
-const TASK: FailureTask = { taskCategory: 'neutral_deterministic', taskFixtureDir: null, memoryMode: 'off' };
+const TASK: FailureTask = { graderCount: 1, taskCategory: 'neutral_deterministic', taskFixtureDir: null, memoryMode: 'off' };
 
 describe('settle (database)', () => {
   let prisma: PrismaService;
