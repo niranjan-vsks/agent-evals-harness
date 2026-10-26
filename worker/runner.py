@@ -34,7 +34,7 @@ from worker.trace import read_events
 _PASSTHROUGH = (
     "PATH", "SYSTEMROOT", "SystemRoot", "COMSPEC", "PATHEXT", "WINDIR", "LANG", "LC_ALL",
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
-    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "WORKER_REGISTRY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "WORKER_FAKE_ADAPTER", "WORKER_ENV", "NODE_ENV",
 )
 
 

@@ -48,7 +48,8 @@ def write_task(root: Path, task_id: str, fixture_rel: str | None, graders: list[
 
 @pytest.fixture
 def runner_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tasks_dir: Path) -> RunnerConfig:
-    monkeypatch.setenv("WORKER_REGISTRY", "worker.tests.fake_registry")
+    monkeypatch.setenv("WORKER_FAKE_ADAPTER", "1")
+    monkeypatch.setenv("WORKER_ENV", "test")
     monkeypatch.setenv(KEY_ENV, SENTINEL_KEY)
     return RunnerConfig(
         work_dir=tmp_path / "work",

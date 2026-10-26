@@ -18,9 +18,11 @@ from fastapi import Body, FastAPI, HTTPException
 
 from worker import active_trials
 from worker.adapters.base import Capabilities
-from worker.registry import load_registry
+from worker.registry import assert_fake_adapter_allowed, load_registry
 from worker.runner import WorkerBusy, run_trial
 from worker.spec import SpecError, settings_from_dict
+
+assert_fake_adapter_allowed()  # a worker with the test flag outside a test environment never starts
 
 app = FastAPI(title="agent-evals worker")
 
