@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Evals Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one 16:9 stage, centred, sized in container units; each slide poses 1 question with 1 diagram. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --surface: #111a2e;
+  --surface-2: #18233b;
+  --line: #243049;
+  --line-strong: #31405f;
+  --text: #e6edf7;
+  --muted: #8b9bb4;
+  --accent: #22b8f0;
+  --accent-deep: #1a73e8;
+  --pass: #2ecc8a;
+  --fail: #ff5c6c;
+  --noise: #f5b942;
+  --font-display: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.stage {
+  position: relative;
+  width: min(100vw, 177.78vh);
+  aspect-ratio: 16 / 9;
+  container-type: inline-size;
+  background:
+    radial-gradient(60cqw 40cqw at 85% -10%, rgb(34 184 240 / .10), transparent 70%),
+    var(--bg);
+  overflow: hidden;
+}
+.slide {
+  position: absolute;
+  inset: 0;
+  padding: 5.2cqw 6cqw 6.4cqw;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 1.4cqw;
+}
+.slide[hidden] { display: none; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 1.05cqw;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+h1, h2 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+h1 { font-size: 4.6cqw; max-width: 22ch; }
+h2 { font-size: 3.4cqw; max-width: 26ch; }
+.sub { font-size: 1.5cqw; color: var(--muted); max-width: 60ch; margin: 0; line-height: 1.45; }
+svg { width: 100%; height: 100%; display: block; overflow: visible; }
+svg text { font-family: var(--font-display); fill: var(--text); }
+svg .mono { font-family: var(--font-mono); }
+svg .muted { fill: var(--muted); }
+svg .acc { fill: var(--accent); }
+.fig { min-height: 0; }
+
+/* builds: an element appears at its turn and settles; no opacity change anywhere */
+.slide.active .b {
+  animation: rise .55s var(--ease) both;
+  animation-delay: calc(var(--i, 0) * .32s + .15s);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes rise {
+  0% { visibility: hidden; transform: translateY(14px) scale(.985); }
+  1% { visibility: visible; }
+  100% { visibility: visible; transform: none; }
+}
+.slide.active .draw {
+  stroke-dasharray: 1;
+  animation: draw .7s var(--ease) both;
+  animation-delay: calc(var(--i, 0) * .32s + .15s);
+}
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.slide.active .grow {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: grow .8s var(--ease) both;
+  animation-delay: calc(var(--i, 0) * .32s + .15s);
+}
+@keyframes grow { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .slide.active .b, .slide.active .draw, .slide.active .grow { animation: none; }
+}
+
+/* slide 1 */
+.hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 4cqw; align-items: end; }
+.big {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11cqw;
+  letter-spacing: -.04em;
+  line-height: .9;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.big-cap { font-size: 1.4cqw; color: var(--muted); margin-top: 1cqw; }
+.facts { display: flex; gap: 3cqw; margin-top: 2.2cqw; }
+.fact b { display: block; font-family: var(--font-mono); font-size: 2.4cqw; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fact span { font-size: 1.1cqw; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+
+/* nav */
+.nav {
+  position: absolute;
+  left: 6cqw; right: 6cqw; bottom: 2.6cqw;
+  display: flex; align-items: center; gap: .8cqw;
+}
+.dot { width: 2.4cqw; height: .32cqw; border: 0; padding: 0; border-radius: 1cqw; background: var(--line-strong); cursor: pointer; }
+.dot[aria-current="true"] { background: var(--accent); }
+.dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.brand { margin-left: auto; font-family: var(--font-mono); font-size: 1cqw; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<main class="stage" id="stage" aria-roledescription="slide deck">
+
+  <!-- 1. the question and the answer -->
+  <section class="slide" aria-label="The question">
+    <div class="eyebrow">Agent evals</div>
+    <h1>Does seeded memory make the agent better, or is it luck?</h1>
+    <div class="hero">
+      <div>
+        <div class="big" data-count="-0.333" data-dec="3">-0.333</div>
+        <div class="big-cap">pass-rate difference, memory off minus memory seeded</div>
+        <div class="facts">
+          <div class="fact"><b data-count="22" data-dec="0">22</b><span>tasks</span></div>
+          <div class="fact"><b data-count="132" data-dec="0">132</b><span>trials</span></div>
+          <div class="fact"><b>N = 3</b><span>per task, per config</span></div>
+        </div>
+      </div>
+      <div class="fig" style="height: 14cqw">
+        <svg viewBox="0 0 600 220" role="img" aria-label="95 percent interval from -0.515 to -0.167, clear of zero">
+          <g class="b" style="--i:1">
+            <line x1="30" y1="120" x2="570" y2="120" stroke="var(--line-strong)" stroke-width="2"/>
+            <text x="30" y="160" class="mono muted" font-size="16">-1</text>
+            <text x="300" y="160" class="mono muted" font-size="16" text-anchor="middle">-0.5</text>
+            <text x="570" y="160" class="mono muted" font-size="16" text-anchor="end">0</text>
+          </g>
+          <line class="draw" style="--i:2" pathLength="1" x1="570" y1="40" x2="570" y2="140" stroke="var(--noise)" stroke-width="2"/>
+          <text class="b" style="--i:2" x="562" y="34" text-anchor="end" font-size="15" fill="var(--noise)">zero: no difference</text>
+          <rect class="grow" style="--i:3" x="291.9" y="104" width="187.9" height="32" rx="16" fill="rgb(34 184 240 / .22)" stroke="var(--accent)" stroke-width="2"/>
+          <circle class="b" style="--i:4" cx="390" cy="120" r="9" fill="var(--accent)"/>
+          <text class="b mono" style="--i:4" x="386" y="86" text-anchor="middle" font-size="18" fill="var(--accent)">[-0.515, -0.167]</text>
+          <text class="b" style="--i:5" x="300" y="205" text-anchor="middle" font-size="16" fill="var(--muted)">95 percent interval: the whole bar sits below zero</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. the problem -->
+  <section class="slide" aria-label="The problem" hidden>
+    <div class="eyebrow">The problem</div>
+    <h2>One run, one score. Is B better, or did it get lucky?</h2>
+    <div class="fig">
+      <svg viewBox="0 0 1200 430" role="img" aria-label="Left: 2 single scores with no error bar. Right: the same configs measured with intervals that overlap zero difference.">
+        <g class="b" style="--i:0">
+          <rect x="20" y="20" width="540" height="390" rx="14" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="50" y="66" font-size="22" font-weight="600">What usually gets reported</text>
+          <text x="50" y="96" font-size="17" class="muted" fill="var(--muted)">1 run per config, a bare number</text>
+        </g>
+        <g class="b" style="--i:1">
+          <line x1="90" y1="330" x2="510" y2="330" stroke="var(--line-strong)" stroke-width="2"/>
+          <rect x="170" y="200" width="90" height="130" rx="6" fill="var(--line-strong)"/>
+          <rect x="340" y="170" width="90" height="160" rx="6" fill="var(--accent)"/>
+          <text x="215" y="365" text-anchor="middle" font-size="20" font-weight="600">A</text>
+          <text x="385" y="365" text-anchor="middle" font-size="20" font-weight="600">B</text>
+          <text x="385" y="150" text-anchor="middle" font-size="40" font-weight="700" fill="var(--noise)">?</text>
+        </g>
+        <g class="b" style="--i:2">
+          <rect x="640" y="20" width="540" height="390" rx="14" fill="var(--surface)" stroke="var(--accent)" stroke-opacity=".5"/>
+          <text x="670" y="66" font-size="22" font-weight="600">What this platform reports</text>
+          <text x="670" y="96" font-size="17" class="muted" fill="var(--muted)">N runs per task, the difference with its interval</text>
+        </g>
+        <line class="draw" style="--i:3" pathLength="1" x1="910" y1="140" x2="910" y2="350" stroke="var(--noise)" stroke-width="2" stroke-dasharray="1"/>
+        <text class="b" style="--i:3" x="910" y="380" text-anchor="middle" font-size="16" fill="var(--noise)">zero</text>
+        <rect class="grow" style="--i:4" x="820" y="190" width="200" height="26" rx="13" fill="rgb(245 185 66 / .18)" stroke="var(--noise)" stroke-width="2"/>
+        <text class="b" style="--i:4" x="700" y="209" font-size="17" fill="var(--muted)">contains zero</text>
+        <text class="b mono" style="--i:4" x="1040" y="209" font-size="17" fill="var(--noise)">noise</text>
+        <rect class="grow" style="--i:5" x="700" y="270" width="160" height="26" rx="13" fill="rgb(34 184 240 / .22)" stroke="var(--accent)" stroke-width="2"/>
+        <text class="b mono" style="--i:5" x="880" y="289" font-size="17" fill="var(--accent)">a winner</text>
+        <text class="b" style="--i:5" x="700" y="326" font-size="17" fill="var(--muted)">clear of zero</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- 3. architecture -->
+  <section class="slide" aria-label="The architecture" hidden>
+    <div class="eyebrow">The architecture</div>
+    <h2>Any harness, any model, behind 1 contract.</h2>
+    <div class="fig">
+      <svg viewBox="0 0 1200 440" role="img" aria-label="Browser to API to worker; the worker runs 1 process per trial through an adapter, Hermes or the minimal loop, to models over OpenRouter.">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+          </marker>
+        </defs>
+        <g class="b" style="--i:0">
+          <rect x="10" y="150" width="200" height="130" rx="12" fill="var(--surface)" stroke="var(--line-strong)"/>
+          <text x="110" y="200" text-anchor="middle" font-size="22" font-weight="600">Web UI</text>
+          <text x="110" y="230" text-anchor="middle" font-size="16" fill="var(--muted)">Vue 3</text>
+          <text x="110" y="254" text-anchor="middle" font-size="16" fill="var(--muted)">configs, compare, traces</text>
+        </g>
+        <line class="draw" style="--i:1" pathLength="1" x1="214" y1="215" x2="272" y2="215" stroke="var(--muted)" stroke-width="2" marker-end="url(#arr)"/>
+        <g class="b" style="--i:1">
+          <rect x="280" y="110" width="260" height="210" rx="12" fill="var(--surface)" stroke="var(--line-strong)"/>
+          <text x="410" y="158" text-anchor="middle" font-size="22" font-weight="600">API</text>
+          <text x="410" y="186" text-anchor="middle" font-size="16" fill="var(--muted)">NestJS + PostgreSQL</text>
+          <text x="410" y="228" text-anchor="middle" font-size="16">scheduler and retries</text>
+          <text x="410" y="254" text-anchor="middle" font-size="16">statistics and verdicts</text>
+          <text x="410" y="280" text-anchor="middle" font-size="16">immutable configs</text>
+        </g>
+        <line class="draw" style="--i:2" pathLength="1" x1="544" y1="215" x2="602" y2="215" stroke="var(--muted)" stroke-width="2" marker-end="url(#arr)"/>
+        <g class="b" style="--i:2">
+          <rect x="610" y="40" width="300" height="360" rx="12" fill="var(--surface)" stroke="var(--line-strong)"/>
+          <text x="760" y="86" text-anchor="middle" font-size="22" font-weight="600">Worker</text>
+          <text x="760" y="114" text-anchor="middle" font-size="16" fill="var(--muted)">Python</text>
+          <text x="760" y="150" text-anchor="middle" font-size="16">1 fresh process per trial</text>
+          <text x="760" y="176" text-anchor="middle" font-size="16">unprivileged user</text>
+        </g>
+        <g class="b" style="--i:3">
+          <rect x="632" y="200" width="256" height="40" rx="8" fill="rgb(34 184 240 / .12)" stroke="var(--accent)" stroke-width="2"/>
+          <text x="760" y="226" text-anchor="middle" font-size="17" font-weight="600" fill="var(--accent)">HarnessAdapter contract</text>
+        </g>
+        <g class="b" style="--i:4">
+          <rect x="632" y="256" width="122" height="54" rx="8" fill="var(--surface-2)" stroke="var(--line-strong)"/>
+          <text x="693" y="289" text-anchor="middle" font-size="17">Hermes</text>
+          <rect x="766" y="256" width="122" height="54" rx="8" fill="var(--surface-2)" stroke="var(--line-strong)"/>
+          <text x="827" y="289" text-anchor="middle" font-size="17">minimal_loop</text>
+        </g>
+        <g class="b" style="--i:5">
+          <rect x="632" y="326" width="256" height="50" rx="8" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="760" y="357" text-anchor="middle" font-size="16">graders, after the agent exits</text>
+        </g>
+        <line class="draw" style="--i:6" pathLength="1" x1="914" y1="283" x2="972" y2="283" stroke="var(--muted)" stroke-width="2" marker-end="url(#arr)"/>
+        <g class="b" style="--i:6">
+          <rect x="980" y="160" width="210" height="246" rx="12" fill="var(--surface)" stroke="var(--line-strong)"/>
+          <text x="1085" y="206" text-anchor="middle" font-size="22" font-weight="600">Models</text>
+          <text x="1085" y="234" text-anchor="middle" font-size="16" fill="var(--muted)">via OpenRouter</text>
+          <rect x="1002" y="262" width="166" height="50" rx="8" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="1085" y="293" text-anchor="middle" font-size="17">model-a</text>
+          <rect x="1002" y="326" width="166" height="50" rx="8" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="1085" y="357" text-anchor="middle" font-size="17">model-b</text>
+        </g>
+        <text class="b" style="--i:7" x="760" y="432" text-anchor="middle" font-size="17" fill="var(--accent)">a new harness is 1 adapter; a new model is 1 registry row</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- 4. the statistical approach -->
+  <section class="slide" aria-label="The statistical approach" hidden>
+    <div class="eyebrow">The statistical approach</div>
+    <h2>Pair by task, resample the tasks, ask if the interval clears zero.</h2>
+    <div class="fig">
+      <svg id="dots" viewBox="0 0 1200 440" role="img" aria-label="The 22 per-task differences of the primary experiment, their mean -0.333 and its 95 percent interval from -0.515 to -0.167, left of zero."></svg>
+    </div>
+  </section>
+
+  <!-- 5. the judge gate -->
+  <section class="slide" aria-label="The judge" hidden>
+    <div class="eyebrow">The judge</div>
+    <h2>A model grades the prose tasks. Does it agree with a human?</h2>
+    <div class="fig">
+      <svg id="kappa" viewBox="0 0 1200 440" role="img" aria-label="Kappa scale from 0 to 1 with zones excluded below 0.4, flagged to 0.6, trusted above. The judge's kappa is 0.638 with an interval from 0.321 to 0.902. 30 items: 8 both pass, 4 judge pass human fail, 1 judge fail human pass, 17 both fail."></svg>
+    </div>
+  </section>
+
+  <!-- 6. the result -->
+  <section class="slide" aria-label="The result" hidden>
+    <div class="eyebrow">The result</div>
+    <h2>Where does the difference live?</h2>
+    <div class="fig">
+      <svg id="forest" viewBox="0 0 1200 440" role="img" aria-label="Difference memory off minus seeded, with 95 percent intervals: aggregate -0.333 from -0.515 to -0.167; memory dependent -0.944 from -1.000 to -0.833; distractor 0.000; neutral -0.111 from -0.250 to 0.028; honesty -0.167 from -0.333 to 0.000. Only the first 2 clear zero."></svg>
+    </div>
+  </section>
+
+  <nav class="nav" aria-label="Slides" id="nav"></nav>
+</main>
+
+<script>
+(() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs = {}, parent, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+  const g = (parent, i, cls = 'b') => el('g', { class: cls, style: `--i:${i}` }, parent);
+
+  // slide 4: the 22 per-task differences (A minus B) of the primary experiment, from its compare.csv
+  (() => {
+    const svg = document.getElementById('dots');
+    const deltas = [0, 0, 0, 0, 1 / 3, 0, -1 / 3, 0, 0, 0, -1 / 3, 0, -1 / 3, 0, -2 / 3, -1 / 3, -1, -1, -1, -1, -1, -2 / 3];
+    const x = (d) => 600 + d * 440;
+    const base = 330;
+    const axis = g(svg, 0);
+    el('line', { x1: 140, y1: base + 22, x2: 1060, y2: base + 22, stroke: 'var(--line-strong)', 'stroke-width': 2 }, axis);
+    for (const t of [-1, -0.5, 0, 0.5, 1]) {
+      el('line', { x1: x(t), y1: base + 22, x2: x(t), y2: base + 30, stroke: 'var(--line-strong)', 'stroke-width': 2 }, axis);
+      el('text', { x: x(t), y: base + 56, 'text-anchor': 'middle', 'font-size': 16, class: 'mono muted', fill: 'var(--muted)' }, axis, String(t));
+    }
+    el('text', { x: 140, y: base + 84, 'font-size': 16, fill: 'var(--muted)' }, axis, 'seeded better');
+    el('text', { x: 1060, y: base + 84, 'font-size': 16, fill: 'var(--muted)', 'text-anchor': 'end' }, axis, 'memory off better');
+    el('text', { x: 140, y: 40, 'font-size': 18, 'font-weight': 600 }, axis, '1 dot = 1 task: its pass rate under A minus under B');
+
+    const dots = g(svg, 1);
+    const stack = new Map();
+    for (const d of deltas) {
+      const k = d.toFixed(3);
+      const n = stack.get(k) || 0;
+      stack.set(k, n + 1);
+      el('circle', { cx: x(d), cy: base - n * 27, r: 11, fill: d < 0 ? 'var(--accent)' : d > 0 ? 'var(--muted)' : 'var(--line-strong)' }, dots);
+    }
+
+    const zero = el('line', { class: 'draw', style: '--i:2', pathLength: 1, x1: x(0), y1: 70, x2: x(0), y2: base + 22, stroke: 'var(--noise)', 'stroke-width': 2 }, svg);
+    zero.setAttribute('stroke-dasharray', '1');
+
+    const step = g(svg, 3);
+    el('text', { x: 1060, y: 96, 'text-anchor': 'end', 'font-size': 18, 'font-weight': 600 }, step, 'resample the 22 tasks');
+    el('text', { x: 1060, y: 122, 'text-anchor': 'end', 'font-size': 18, class: 'mono', fill: 'var(--accent)' }, step, '10,000 times, seeded');
+
+    const ciY = 84;
+    el('rect', { class: 'grow', style: '--i:4', x: x(-0.515), y: ciY - 14, width: x(-0.167) - x(-0.515), height: 28, rx: 14, fill: 'rgb(34 184 240 / .22)', stroke: 'var(--accent)', 'stroke-width': 2 }, svg);
+    const m = g(svg, 5);
+    el('circle', { cx: x(-1 / 3), cy: ciY, r: 8, fill: 'var(--accent)' }, m);
+    el('text', { x: x(-0.515) - 14, y: ciY + 6, 'text-anchor': 'end', 'font-size': 17, class: 'mono', fill: 'var(--accent)' }, m, 'mean -0.333  [-0.515, -0.167]');
+
+    const rule = g(svg, 6);
+    el('rect', { x: 700, y: 170, width: 360, height: 76, rx: 10, fill: 'var(--surface)', stroke: 'var(--line-strong)' }, rule);
+    el('text', { x: 720, y: 202, 'font-size': 17 }, rule, 'interval contains zero: noise');
+    el('text', { x: 720, y: 230, 'font-size': 17, fill: 'var(--accent)' }, rule, 'clear of zero: name the winner');
+  })();
+
+  // slide 5: kappa against the thresholds fixed before labelling
+  (() => {
+    const svg = document.getElementById('kappa');
+    const x = (k) => 60 + k * 720;
+    const y = 190;
+    const zones = g(svg, 0);
+    const z = [[0, 0.4, 'rgb(255 92 108 / .14)', 'var(--fail)', 'excluded'], [0.4, 0.6, 'rgb(245 185 66 / .14)', 'var(--noise)', 'flagged'], [0.6, 1, 'rgb(46 204 138 / .14)', 'var(--pass)', 'trusted']];
+    for (const [a, b, fill, ink, name] of z) {
+      el('rect', { x: x(a), y: y - 40, width: x(b) - x(a), height: 80, fill }, zones);
+      el('text', { x: (x(a) + x(b)) / 2, y: y - 54, 'text-anchor': 'middle', 'font-size': 17, 'font-weight': 600, fill: ink }, zones, name);
+    }
+    for (const t of [0, 0.4, 0.6, 1]) {
+      el('line', { x1: x(t), y1: y + 40, x2: x(t), y2: y + 50, stroke: 'var(--line-strong)', 'stroke-width': 2 }, zones);
+      el('text', { x: x(t), y: y + 74, 'text-anchor': 'middle', 'font-size': 16, class: 'mono', fill: 'var(--muted)' }, zones, String(t));
+    }
+    el('text', { x: 60, y: y + 110, 'font-size': 16, fill: 'var(--muted)' }, zones, "Cohen's kappa: agreement corrected for chance. Thresholds set before labelling.");
+
+    el('rect', { class: 'grow', style: '--i:1', x: x(0.321), y: y - 10, width: x(0.902) - x(0.321), height: 20, rx: 10, fill: 'rgb(230 237 247 / .14)', stroke: 'var(--text)', 'stroke-width': 2 }, svg);
+    const pt = g(svg, 2);
+    el('circle', { cx: x(0.6377), cy: y, r: 10, fill: 'var(--accent)' }, pt);
+    el('text', { x: x(0.6377), y: y + 30, 'text-anchor': 'middle', 'font-size': 18, class: 'mono', fill: 'var(--accent)' }, pt, '0.638');
+    el('text', { x: x(0.321), y: y - 20, 'text-anchor': 'middle', 'font-size': 15, class: 'mono', fill: 'var(--text)' }, pt, '0.321');
+    el('text', { x: x(0.902), y: y - 20, 'text-anchor': 'middle', 'font-size': 15, class: 'mono', fill: 'var(--text)' }, pt, '0.902');
+
+    const mx = g(svg, 3);
+    const ox = 870, oy = 70, c = 120;
+    el('text', { x: ox, y: oy - 20, 'font-size': 17, 'font-weight': 600 }, mx, '30 trials, labelled blind');
+    el('text', { x: ox + c / 2 + 70, y: oy + 6, 'text-anchor': 'middle', 'font-size': 14, fill: 'var(--muted)' }, mx, 'human pass');
+    el('text', { x: ox + c * 1.5 + 70, y: oy + 6, 'text-anchor': 'middle', 'font-size': 14, fill: 'var(--muted)' }, mx, 'human fail');
+    const cells = [[8, 0, 0, true], [4, 1, 0, false], [1, 0, 1, false], [17, 1, 1, true]];
+    for (const [n, cxI, cyI, agree] of cells) {
+      const cx = ox + 70 + cxI * c, cy = oy + 16 + cyI * (c - 30);
+      el('rect', { x: cx, y: cy, width: c - 8, height: c - 38, rx: 8, fill: agree ? 'rgb(46 204 138 / .14)' : 'var(--surface)', stroke: agree ? 'var(--pass)' : 'var(--line-strong)' }, mx);
+      el('text', { x: cx + (c - 8) / 2, y: cy + (c - 38) / 2 + 12, 'text-anchor': 'middle', 'font-size': 32, 'font-weight': 600, class: 'mono' }, mx, String(n));
+    }
+    el('text', { x: ox + 62, y: oy + 60, 'text-anchor': 'end', 'font-size': 14, fill: 'var(--muted)' }, mx, 'judge pass');
+    el('text', { x: ox + 62, y: oy + 150, 'text-anchor': 'end', 'font-size': 14, fill: 'var(--muted)' }, mx, 'judge fail');
+    el('text', { x: ox + 70, y: oy + 220, 'font-size': 16, class: 'mono', fill: 'var(--pass)' }, mx, '25 of 30 agree');
+  })();
+
+  // slide 6: the result by group, delta A (off) minus B (seeded) with 95 percent intervals
+  (() => {
+    const svg = document.getElementById('forest');
+    const rows = [
+      ['all 22 tasks', 22, -0.333, -0.515, -0.167, true],
+      ['memory-dependent', 6, -0.944, -1.0, -0.833, true],
+      ['memory distractor', 2, 0, 0, 0, false],
+      ['neutral', 12, -0.111, -0.25, 0.028, false],
+      ['honesty', 2, -0.167, -0.333, 0, false],
+    ];
+    const x = (d) => 360 + (d + 1) * 560;
+    const top = 50, rowH = 62;
+    const axis = g(svg, 0);
+    for (const t of [-1, -0.5, 0, 0.25]) {
+      el('line', { x1: x(t), y1: top - 10, x2: x(t), y2: top + rows.length * rowH, stroke: t === 0 ? 'var(--noise)' : 'var(--line)', 'stroke-width': t === 0 ? 2 : 1 }, axis);
+      el('text', { x: x(t), y: top + rows.length * rowH + 26, 'text-anchor': 'middle', 'font-size': 15, class: 'mono', fill: t === 0 ? 'var(--noise)' : 'var(--muted)' }, axis, String(t));
+    }
+    el('text', { x: x(-1), y: top + rows.length * rowH + 56, 'font-size': 15, fill: 'var(--muted)' }, axis, 'seeded better');
+    rows.forEach(([name, n, d, lo, hi, clear], i) => {
+      const yy = top + i * rowH + rowH / 2;
+      const r = g(svg, i + 1);
+      el('text', { x: 20, y: yy + 6, 'font-size': 19, 'font-weight': i === 0 ? 700 : 500 }, r, name);
+      el('text', { x: 230, y: yy + 6, 'font-size': 15, class: 'mono', fill: 'var(--muted)' }, r, `${n} tasks`);
+      const w = Math.max(x(hi) - x(lo), 4);
+      el('rect', { x: x(lo) - (w === 4 ? 2 : 0), y: yy - 9, width: w, height: 18, rx: 9, fill: clear ? 'rgb(34 184 240 / .25)' : 'rgb(245 185 66 / .16)', stroke: clear ? 'var(--accent)' : 'var(--noise)', 'stroke-width': 2 }, r);
+      el('circle', { cx: x(d), cy: yy, r: 7, fill: clear ? 'var(--accent)' : 'var(--noise)' }, r);
+      el('text', { x: 1190, y: yy + 6, 'text-anchor': 'end', 'font-size': 16, class: 'mono', fill: clear ? 'var(--accent)' : 'var(--noise)' }, r, clear ? 'clear of zero' : 'noise');
+    });
+    el('text', { class: 'b', style: '--i:7', x: 20, y: 432, 'font-size': 17, fill: 'var(--accent)' }, svg, 'measured on 22 tasks, 6 of them written to need memory');
+  })();
+
+  // count-in for hero numbers; the final text is always the exact value
+  const countIn = (slide) => {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    slide.querySelectorAll('[data-count]').forEach((n) => {
+      const target = Number(n.dataset.count), dec = Number(n.dataset.dec || 0);
+      const final = target.toFixed(dec);
+      if (reduce) { n.textContent = final; return; }
+      const t0 = performance.now(), dur = 1100;
+      const tick = (t) => {
+        const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+        n.textContent = p < 1 ? (target * e).toFixed(dec) : final;
+        if (p < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  };
+
+  const slides = [...document.querySelectorAll('.slide')];
+  const nav = document.getElementById('nav');
+  const dots = slides.map((s, i) => {
+    const b = document.createElement('button');
+    b.className = 'dot';
+    b.type = 'button';
+    b.setAttribute('aria-label', `Slide ${i + 1}: ${s.getAttribute('aria-label')}`);
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); show(i); });
+    nav.appendChild(b);
+    return b;
+  });
+  const brand = document.createElement('span');
+  brand.className = 'brand';
+  brand.textContent = 'Agent Evals Platform';
+  nav.appendChild(brand);
+
+  let cur = -1;
+  function show(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    if (i === cur) return;
+    slides.forEach((s, k) => { s.hidden = k !== i; s.classList.toggle('active', k === i); });
+    dots.forEach((d, k) => d.setAttribute('aria-current', String(k === i)));
+    cur = i;
+    countIn(slides[i]);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(cur + 1); }
+    if (['ArrowLeft', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(cur - 1); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+  });
+  document.getElementById('stage').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    show(e.clientX - r.left < r.width / 3 ? cur - 1 : cur + 1);
+  });
+  show(0);
+})();
+</script>
+</body>
+</html>
