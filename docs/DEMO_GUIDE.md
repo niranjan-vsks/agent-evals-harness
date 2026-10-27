@@ -82,27 +82,27 @@ The live part has not been run on p5run since the API was rebuilt for P8 (it run
 
 ## 3. Exact expected values, screen by screen
 
-The base state is the post-kappa database: 2 experiments, 264 trials (DESIGN 10.6). Every rehearsal adds to the counts (see section 2).
+The base state is the post-kappa database: 2 experiments, 264 trials (DESIGN 10.6). The values below are the ones measured on the refreshed `p5run` stack (api, worker and web rebuilt from `eabb676`) **after 1 rehearsal of the live run**, experiment `01M5ZA546VKGJ850QY1KC7JJV1` (section 3.7). Where the base differs, it is in brackets. Every further rehearsal adds to the counts.
 
 ### 3.1 Overview, `http://localhost:8280/`
 
 | element | expected (base state) | source |
 |---|---|---|
-| Experiments tile | **2**, with "3 configs, 2 models, 2 harnesses" | STATE P8 walk report |
-| Trials done | **264** | STATE P8 |
-| Spend | **0.11 USD**, "0.109366 USD over done trials" | STATE P8; exports |
-| Best pass rate | **0.894**, `hermes memory seeded` | STATE P8; exports |
-| Errored trials | **0** | STATE P8 |
-| Tasks | **22**, "current versions" | STATE P8 |
-| Latest verdicts | 2 rows, both `stats_version` 1.1.0, judge trusted, reliability complete. Likely order: newest first, so the **secondary** (computed 00:32:53Z) above the **primary** (00:32:50Z) | export `comparison_runs[1].computed_at` |
+| Experiments tile | **3** [base 2], with "3 configs, 2 models, 2 harnesses" | `/summary` after the rehearsal |
+| Trials done | **268** [base 264] | `/summary` after the rehearsal |
+| Spend | **0.11 USD**, "0.111513 USD over done trials" [base 0.109366] | `/summary` after the rehearsal |
+| Best pass rate | **0.894**, `hermes memory seeded` (unchanged) | `/summary` after the rehearsal |
+| Errored trials | **0** | `/summary` after the rehearsal |
+| Tasks | **22**, "current versions" | `/summary` after the rehearsal |
+| Latest verdicts | 2 rows (unchanged: the rehearsal persisted no comparison), both `stats_version` 1.1.0, judge trusted, reliability complete. Likely order: newest first, so the **secondary** (computed 00:32:53Z) above the **primary** (00:32:50Z) | export `comparison_runs[1].computed_at` |
 | verdict row, primary | interval **-0.333 [-0.515, -0.167]**, pill **B better by 0.333 [0.167, 0.515]** | compare.csv; CompareView format |
 | verdict row, secondary | interval **0.106 [0.030, 0.197]**, pill **A better by 0.106 [0.030, 0.197]**. On camera: "no reliable difference" | DESIGN 10.5 |
-| Pass rate per config | seeded **0.894** (accent bar), `hermes memory off, claude-haiku-5.5` **0.682**, `hermes memory off` **0.568** | computed from the 2 exports |
-| Cost against pass rate | 3 points, mean cost per trial: seeded 0.000437, haiku 0.000358, off 0.000431 USD | computed from the 2 exports |
-| Failure categories | 8 rows: judge_criteria_unmet **36**, abstained **20**, step_exhaustion **10**, wrong_tool_usage **6**, wrong_answer **6**, no_final_answer **5**, tool_error_unrecovered **1**, grader_disagreement **1**; caption "4 categories have 0 and are not listed" | STATE "Judge validation"; exports |
-| Recent experiments | "P5 secondary: model-a vs model-b, hermes memory off" and "P5 primary: hermes memory off vs seeded", both completed, 132 / 132 | exports |
+| Pass rate per config | seeded **0.894** (accent bar), `hermes memory off, claude-haiku-5.5` **0.682**, `hermes memory off` **0.575** [base 0.568: the rehearsal's `mem-05-lint` passed under off] | `/summary` after the rehearsal |
+| Cost against pass rate | 3 points, mean cost per trial: seeded 0.000438, haiku 0.000358, off 0.000439 USD [base 0.000437, 0.000358, 0.000431] | `/summary` after the rehearsal |
+| Failure categories | unchanged by the rehearsal (all 4 trials passed). 8 rows: judge_criteria_unmet **36**, abstained **20**, step_exhaustion **10**, wrong_tool_usage **6**, wrong_answer **6**, no_final_answer **5**, tool_error_unrecovered **1**, grader_disagreement **1**; caption "4 categories have 0 and are not listed" | STATE "Judge validation"; exports |
+| Recent experiments | 3 rows, the rehearsal on top: "Demo rehearsal: memory off vs seeded, live" completed 4 / 4, then "P5 secondary: model-a vs model-b, hermes memory off" and "P5 primary: hermes memory off vs seeded", both completed, 132 / 132 | `/summary` after the rehearsal |
 
-If a rehearsal ran: Experiments rises by 1 and Trials done by 4 for each rehearsal (268 after 1), Spend rises by a few ten-thousandths of a dollar, and Recent experiments shows the rehearsal on top. The pass-rate bars should not move if the 4 trials went as expected.
+Each rehearsal adds 1 to Experiments and 4 to Trials done (268 after 1), and Recent experiments shows it on top. The first one added 0.002147 USD of spend, and it moved the `hermes memory off` bar from 0.568 to 0.575, because its `mem-05-lint` trial passed. The pass-rate bars therefore can move by a few thousandths when the 4 trials do not repeat the real run. The seeded bar and the best pass rate did not move. If the rehearsal experiment is removed, the base values in brackets apply.
 
 ### 3.2 Configs, `/configs`
 
@@ -182,20 +182,40 @@ Form on `/experiments`:
 - hypothesis: `On these 2 tasks memory changes mem-05 only; with 2 tasks and 1 trial the platform should call it noise.`
 - Create, then Start.
 
-Expected while running: 4 trials, at most 2 running at a time.
+Expected while running: 4 trials, at most 2 running at a time. Measured: after 3 s, 2 pending and 2 running; after 33 s, 2 done and 2 running; after 63 s, 3 done and 1 running; completed 66 s after Start (`started_at` 2026-10-27T18:32:25Z, `finished_at` 18:33:32Z).
 
-Expected when finished. These are worked out by hand from the code's rules and the real run's outcomes, so they are **[NOT MEASURED]** until the rehearsal:
+The form leaves the seed empty and the API draws one; the rehearsal got 1735921113. The Name field is required and the list above does not give one; the rehearsal used `Demo rehearsal: memory off vs seeded, live`. Phase is the form's default, `full`. Config order was off (A), then seeded (B).
 
-| element | expected if the outcomes repeat |
+**Rehearsal run, measured on 2026-10-27** (experiment `01M5ZA546VKGJ850QY1KC7JJV1`, Compare at `/experiments/01M5ZA546VKGJ850QY1KC7JJV1/compare?a=01M5SRTYBWGNJH3HV8N3BHSTKH&b=01M5SRTYKGT14BBXBCKFV1ANYQ`). All 4 trials ended `done`, 0 errored.
+
+| trial | task | config | passed | latency | cost |
+|---|---|---|---|---|---|
+| `01M5ZA54AEDQYKT4PHEF9ERF81` | det-06-ini | off | pass | 20.7 s | 0.000162 USD |
+| `01M5ZA54AEDQYKT4PHEF9ERF82` | det-06-ini | seeded | pass | 21.3 s | 0.000203 USD |
+| `01M5ZA54AFKN362XP5BC4VNP9Y` | mem-05-lint | off | **pass** | 41.4 s | 0.001469 USD |
+| `01M5ZA54AFKN362XP5BC4VNP9Z` | mem-05-lint | seeded | pass | 20.6 s | 0.000313 USD |
+
+**The hand-worked prediction did not repeat.** In the real run `mem-05-lint` failed 3 of 3 under off; here, the off trial passed. Its trace: it ran `python3 lint.py` (PASS), then, after more searching, `python3 lint.py --strict` (FAIL, exit 1), and still ended with a passing answer. That is 1 trial per cell, and it is the case the recovery table calls "a live outcome differs". The rows below are what the platform showed.
+
+| element | observed |
 |---|---|
 | det-06-ini | pass under both |
-| mem-05-lint | fail under off, pass under seeded |
-| aggregate | A 0.500, B 1.000, delta -0.500, interval [-1.000, 0.000], **noise: the interval contains 0**, min detectable 0.500 |
-| categories | memory_dependent and neutral each 1 task: `insufficient_data` |
-| per-task rows | `insufficient_data` (N = 1 is below 2 trials per side) |
-| McNemar | shown (N = 1): A only 0, B only 1, p 1.000 |
-| sign test | A 0, B 1, tied 1, p 1.000 |
-| judge policy | no judged task in this run |
+| mem-05-lint | pass under both |
+| aggregate | A 1.000, B 1.000, delta 0.000, interval [0.000, 0.000], verdict **noise** (the interval contains 0), min detectable 0.000 |
+| categories | memory_dependent and neutral each 1 task: `insufficient_data` ("1 paired task(s); an interval needs at least 2") |
+| per-task rows | `insufficient_data` for both (N = 1 is below 2 trials per side), direction only |
+| McNemar | shown (N = 1): A only 0, B only 0, both pass 2, p 1.000 |
+| sign test | A 0, B 0, ties 2, p 1.000 |
+| failure categories | all 0 for both configs |
+| badges | reliability complete; rate-limit affected trials 0; judge policy `trusted` (the payload's default; no judged task is in this run) |
+| cost per trial | A 0.000816, B 0.000258 USD; delta interval [-0.000041, 0.001156] |
+| latency per trial | A 31.1 s, B 21.0 s; delta interval [-0.6, 20.8] s |
+| input tokens per trial | A 43,135, B 13,629 |
+| stats version | 1.1.0 |
+
+The next live run may come out differently (mem-05 off failing is the likely alternative). Read the verdict from the screen; with 2 tasks and 1 trial, expect `insufficient_data` in the category and per-task rows either way.
+
+The rehearsal was read through `GET .../compare` without `persist`, and no export was requested, so the Overview's Latest verdicts still show 2 rows.
 
 **Do not click Export on the live experiment.** Exporting persists a comparison, and it would then appear in the Overview's Latest verdicts.
 
