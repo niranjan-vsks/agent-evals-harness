@@ -36,7 +36,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 [NEXT SLIDE: the question and the answer]
 
-> "Here is the answer I got. Does giving the agent a memory file make it better, or is the improvement luck? On 22 tasks, Hermes with seeded memory passed 0.894 against 0.561 without it. That is a difference of minus 0.333, with a 95 percent interval from minus 0.515 to minus 0.167. The rest of this video is how the platform gets to that number, and where it stops trusting itself."
+> "So I picked 1 such question to put the platform through. Does giving the agent a memory file make it better, or is the improvement luck? Here is what came out. On 22 tasks, Hermes with seeded memory passed 0.894 against 0.561 without it. That is a difference of minus 0.333, with a 95 percent interval from minus 0.515 to minus 0.167. The rest of this video is how the platform gets to that number, and where it stops trusting itself."
 
 ## 0:45 Deck (1:30)
 
@@ -58,7 +58,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 [NEXT SLIDE: the result, let the bars draw]
 
-> "The result. Memory-dependent tasks: 0 of 18 trials without memory, 17 of 18 with it. Every other group contains zero. So the claim is narrow: memory helped on tasks written to need it, and did no harm on the rest of this set. Now the live system."
+> "The result. Memory-dependent tasks: 0 of 18 trials without memory, 17 of 18 with it. Every other group contains zero. So the claim is narrow: memory helped on tasks written to need it, and did no harm on the rest of this set. That is the deck. Everything else is the running system, starting with how it comes up."
 
 ## 2:15 Setup: 1 command, 4 containers (0:15)
 
