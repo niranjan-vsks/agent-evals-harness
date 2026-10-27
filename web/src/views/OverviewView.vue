@@ -272,8 +272,8 @@ const finished = (e: SummaryExperiment): number => e.progress.done + e.progress.
             </g>
           </svg>
           <p class="muted small caption">
-            Over every done trial of the config, judged tasks included; a Compare page withholds judged tasks under the judge policy excluded, so its
-            rates can differ.<template v-if="unrated > 0"> {{ unrated }} config(s) with no graded trial are not drawn.</template>
+            Over every done trial of the config, in every experiment; a Compare page shows 1 experiment under its judge policy, so its rates can
+            differ.<template v-if="unrated > 0"> {{ unrated }} config(s) with no graded trial are not drawn.</template>
           </p>
         </div>
 

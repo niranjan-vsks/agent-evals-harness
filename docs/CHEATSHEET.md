@@ -175,24 +175,3 @@ Also an import endpoint for exports, and recording the serving provider per call
 | "N = 3 is enough" | "N = 3 met the pre-registered rule and resolves large effects only" |
 | "the minimal loop is our competitor to Hermes" | "the minimal loop is the second harness that proves the contract" |
 | "the experiment runs from the repo" | "it ran on an isolated stack; the data comes back from the committed dump" |
-
----
-
-## 6. Document errors found
-
-These were found while writing. README.md and DESIGN.md were not changed.
-
-| where | what it says | what is true |
-|---|---|---|
-| README "Repository layout" | `cards/` is "the build order, P1 to P6" | the cards go to P8 |
-| README "Repository layout" and "Using it" | the web views are Configs, Experiments, Experiment detail, Compare, Trial | the home screen is the Overview (P8, `/`) |
-| README "The primary experiment" | points to the export only | it does not say how to restore the dump; the commands are in `experiments/p5/README.md`. The brief for these documents said "README says how"; it does not |
-| DESIGN 2.3 | the child process runs the graders | since R-11 the runner grades, as root, after the child exits |
-| DESIGN 2.4 and 15 | `cards/ P1..P6.md`, 5 web views | 8 cards, 6 views |
-| DESIGN 6.1 | isolation is process plus directory | it is also the unprivileged `agent` user since `e73e939` |
-| DESIGN 9.6 | `stats_version` stayed 1.0.0; `failures` covers headline tasks | `STATS_VERSION` is 1.1.0; `failures` counts every task and there is a `failures_judge_excluded` block (STATE "Audit fixes (code)", fixes 6 and 7) |
-| DESIGN 13.1 | "the aggregate CI at N = 5 is about plus or minus 0.13" | N was 3; measured min detectable 0.174 |
-| DESIGN 13.6 and 13.13 | `/tasks` is readable by the agent; "real confinement (a separate uid ...) is not built" | the agent runs as user `agent` and the tasks sit under a root-only directory; a per-trial uid and a mount namespace are still not built |
-| DESIGN 13.14 | cached prompt tokens are priced at 0 | true of the committed P5 rows; the code prices them since `08de24d` |
-| DESIGN header | "Sections 10.4 and 11 ... marked TBD" | both are filled |
-| Overview chart caption (UI text, not a document) | rates differ because Compare withholds judged tasks under `excluded` | under `trusted` the remaining difference is pooling across experiments |

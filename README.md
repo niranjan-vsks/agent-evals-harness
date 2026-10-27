@@ -60,10 +60,11 @@ The API suite's stub walk needs Python and is skipped inside the API container; 
 
 ## Using it
 
-1. **Configs** (UI: Configs). Pick a harness, a model and the settings: tools, memory (`off` or `seeded` with a fixture), skills, temperature, `max_steps`, `max_output_tokens`, timeout. The harness validates the settings before the row is written; a setting it cannot honor exactly is refused with the reason (for example, the minimal loop has no skills). A config is immutable: the same settings give the same row again (HTTP 200), different settings give a new row (201).
-2. **Experiments** (UI: Experiments). Pick 2 or more configs, the tasks, N trials per (task, config), and write the hypothesis. The hypothesis is frozen when the experiment starts. Start runs every trial; the page follows progress.
-3. **Compare** (from an experiment). Badges first (reliability, judge policy, rate-limited trials), then the aggregate delta with its interval and the verdict, the 4 category blocks, the sign test, a per-task table, and cost, latency and tokens next to quality. A verdict is `noise` exactly when the 95 percent interval contains 0.
-4. **Trial inspector** (from any trial row). Why it failed, every grader result with the judge's reasoning, the event timeline with each tool call paired to its result, memory before and after, the system prompt.
+1. **Overview** (UI: the home screen, `/`). Read-only: pass rate and cost per config, the failure categories, the recent experiments, pooled over every experiment in the database.
+2. **Configs** (UI: Configs). Pick a harness, a model and the settings: tools, memory (`off` or `seeded` with a fixture), skills, temperature, `max_steps`, `max_output_tokens`, timeout. The harness validates the settings before the row is written; a setting it cannot honor exactly is refused with the reason (for example, the minimal loop has no skills). A config is immutable: the same settings give the same row again (HTTP 200), different settings give a new row (201).
+3. **Experiments** (UI: Experiments). Pick 2 or more configs, the tasks, N trials per (task, config), and write the hypothesis. The hypothesis is frozen when the experiment starts. Start runs every trial; the page follows progress.
+4. **Compare** (from an experiment). Badges first (reliability, judge policy, rate-limited trials), then the aggregate delta with its interval and the verdict, the 4 category blocks, the sign test, a per-task table, and cost, latency and tokens next to quality. A verdict is `noise` exactly when the 95 percent interval contains 0.
+5. **Trial inspector** (from any trial row). Why it failed, every grader result with the judge's reasoning, the event timeline with each tool call paired to its result, memory before and after, the system prompt.
 
 ## Add a task
 
@@ -145,7 +146,7 @@ The committed export of the primary experiment is under `experiments/results/`.
 
 ## The primary experiment
 
-Hermes, 1 model (`openai/gpt-oss-20b`), memory `off` against memory `seeded` with `tasks/memory/team-memory-v1`, over 22 tasks. The hypothesis was written before the run and is stored on the experiment. Pilot, chosen N, intervals per category, the 3 inspected trajectories, judge agreement, actual spend and the limits are in [DESIGN.md](DESIGN.md) section 10.4; the raw export and the scripts that ran it are in `experiments/`.
+Hermes, 1 model (`openai/gpt-oss-20b`), memory `off` against memory `seeded` with `tasks/memory/team-memory-v1`, over 22 tasks. The hypothesis was written before the run and is stored on the experiment. Pilot, chosen N, intervals per category, the 3 inspected trajectories, judge agreement, actual spend and the limits are in [DESIGN.md](DESIGN.md) section 10.4; the raw export and the scripts that ran it are in `experiments/`; to load the data into a database, see "Restore the experiment data" below. The script for the walkthrough recording is [docs/SCRIPT.md](docs/SCRIPT.md).
 
 Judge validation (DESIGN.md 8.2) is a 3-step protocol; `experiments/judge-validation/README.md` has the file formats:
 
@@ -154,6 +155,19 @@ docker compose exec api npm run judge:sample -- --n 30    # writes experiments/j
 # label every line against its rubric, write experiments/judge-validation/labels.jsonl
 docker compose exec api npm run judge:kappa               # agreement, Cohen's kappa, 95 percent interval, policy
 ```
+
+## Restore the experiment data
+
+`experiments/results/p5run-db-pre-kappa.sql.gz` is `pg_dump --no-owner` of the run's database (schema and data of both experiments, before the judge validation). The platform has no import endpoint, so this is how the experiments come back into a database. Making a dump, and restoring one into an empty `postgres:16` (this was tested: exit 0, 264 trials, 2 experiments, 3 configs, 2 comparison runs):
+
+```
+docker compose -p p5run -f C:/hx/p5src/docker-compose.yml exec -T db pg_dump -U evals --no-owner evals | gzip -9 > dump.sql.gz
+
+docker run -d --name restore -e POSTGRES_USER=evals -e POSTGRES_PASSWORD=evals -e POSTGRES_DB=evals postgres:16
+gzip -dc dump.sql.gz | docker exec -i restore psql -U evals -d evals -q -v ON_ERROR_STOP=1
+```
+
+To use the restored data with the application, restore into the `db` service of a stack whose database is empty (start only `db`, restore, then start `api`, `worker` and `web`); the dump should include Prisma's `_prisma_migrations` table, so the API should see the migrations as applied (starting the application on a restored database was not tested). `experiments/results/p5run-db-post-kappa.sql.gz` is the dump taken after `judge:kappa` and `failures:backfill` (it also holds the 30 labels, the `judge_validation` row and the post-kappa `comparison_run` of each experiment); the pre-kappa dump is kept as the record of the database before the validation.
 
 ## Where the design lives
 
@@ -174,9 +188,10 @@ docker compose exec api npm run judge:kappa               # agreement, Cohen's k
 
 ```
 api/           NestJS + Prisma: models, harnesses, tasks, configs, experiments, scheduler, stats, compare, export, judge tooling
-web/           Vue 3 + TypeScript + Vite: Configs, Experiments, Experiment detail, Compare, Trial
+web/           Vue 3 + TypeScript + Vite: Overview, Configs, Experiments, Experiment detail, Compare, Trial
 worker/        Python 3.14: server.py, runner.py, run_one.py, adapters/, graders/, tests/
 tasks/         <id>.json, fixtures/<id>/, memory/<fixture>/, gen/ (fixture generators)
 experiments/   judge-validation/, results/ (committed exports), p2/ and p5/ (run records and scripts)
-cards/         the build order, P1 to P6
+cards/         the build order, P1 to P8
+docs/          explainers and the demo guide; docs/SCRIPT.md is the walkthrough recording script
 ```

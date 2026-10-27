@@ -1,9 +1,7 @@
 # DESIGN.md: Agent Evals Platform
 
 Companion documents: ADAPTERS.md (adapter contracts, frozen), DATA_MODEL.md (schema and
-invariants), `cards/P1..P6.md` (build order), STATE.md (what is actually built).
-Sections 10.4 and 11 are filled in by the P5 and P2 builders respectively; until then
-they are marked `TBD` on purpose.
+invariants), `cards/P1..P8.md` (build order), STATE.md (what is actually built).
 
 ---
 
@@ -78,10 +76,11 @@ API scheduler picks a pending trial (bounded by MAX_CONCURRENT_TRIALS)
   → POST worker /trials/run {TrialSpec}
       worker.runner: creates /work/trials/<id>/<attempt>/{workspace,out,...}
         copies fixture (R-5), verifies task hash (R-6)
-        spawns child: python -m worker.run_one spec.json  (R-1)
-          child: adapter.prepare(ctx) → adapter.run(ctx) [events streamed to out/events.jsonl, H-7]
-                 adapter.collect_memory(ctx) → graders run in workspace (R-7)
-                 writes out/result.json
+        spawns child as the unprivileged user `agent`: python -m worker.run_one spec.json  (R-1, R-11)
+          child: adapter.prepare(ctx) → adapter.run(ctx) [events streamed to child/events.jsonl, H-7]
+                 adapter.collect_memory(ctx); writes child/result.json
+        runner (root) collects both into out/, runs the graders in the workspace after the
+          child has exited (R-11, which supersedes R-7), writes out/result.json
         runner enforces timeout (R-2), assembles trace from disk (R-4), deletes dir (R-8)
       ← TrialResult {outcome, usage, trace, grader_results} or {error_class, partial_trace}
   → API ingests: trial.done + trace + grader_results, or applies retry policy (6.3)
@@ -92,11 +91,11 @@ API scheduler picks a pending trial (bounded by MAX_CONCURRENT_TRIALS)
 
 ```
 api/            NestJS. src/{models,harnesses,tasks,configs,experiments,scheduler,stats,export,common}
-web/            Vue 3. src/{views: Configs, Experiments, ExperimentDetail, Compare, Trial; api client}
+web/            Vue 3. src/{views: Overview, Configs, Experiments, ExperimentDetail, Compare, Trial; api client}
 worker/         Python. adapters/, runner.py, run_one.py, models.py, graders/, server.py, tests/
 tasks/          <task-id>.json, fixtures/<task-id>/..., memory/<fixture>/{MEMORY.md,USER.md}, gen/ (fixture generators)
 experiments/    judge-validation/labels.jsonl, results/<experiment-id>.json (committed exports)
-cards/          P1..P6.md
+cards/          P1..P8.md
 docker-compose.yml  .env.example  README.md  DESIGN.md  ADAPTERS.md  DATA_MODEL.md  STATE.md
 ```
 
@@ -157,9 +156,9 @@ cannot be given a temperature.
 
 ### 6.1 Isolation
 
-Each trial attempt gets a fresh child process (R-1), a fresh `trial_dir` with a copied
-fixture (R-5), and, for Hermes, a fresh `HERMES_HOME` inside it containing only what
-`prepare()` wrote (H-2). Memory content enters a trial only when the config's memory
+Each trial attempt gets a fresh child process (R-1) running as the unprivileged user `agent`
+(R-11, commit `e73e939`), a fresh `trial_dir` with a copied fixture (R-5), and, for Hermes, a
+fresh `HERMES_HOME` inside it containing only what `prepare()` wrote (H-2). Memory content enters a trial only when the config's memory
 mode is `seeded`, and then only the fixture content (H-3); the agent's memory writes land
 in the trial's own directory, are captured in the trace, and are discarded with the
 directory. There is no mode in which trial k's memory writes reach trial k+1. That mode
@@ -483,9 +482,10 @@ computable for this input"; a block never has a missing key.
               "verdict","direction_only":true,"judge_excluded":bool,
               "failure_category_a","failure_category_b"}],
                                   // judge-excluded tasks keep a row, flagged, and are outside every headline figure
- "failures":{"a":{<category>:count,...},"b":{...},"uncategorized":{"a","b"}},   // failed trials of the headline tasks (DATA_MODEL 3)
+ "failures":{"a":{<category>:count,...},"b":{...},"uncategorized":{"a","b"}},   // failed trials of every task, stats 1.1.0 (DATA_MODEL 3)
  "cost":{"a":{"mean","ci_low","ci_high"},"b":{...},"delta_ci":[lo,hi]|null},
  "latency_ms":{...},"tokens":{"input":{...},"output":{...}},
+ "failures_judge_excluded": {same shape as failures}|null,
  "stats_version"}
 ```
 
@@ -493,8 +493,12 @@ computable for this input"; a block never has a missing key.
 `judge_confidence`, `judge`, `unpaired_tasks`, `ci_method`, `mcnemar_omitted`, `failures` (P6), the
 `direction_only`, `judge_excluded` and `failure_category_a/_b` fields of `per_task`, `reason` and the
 `insufficient_data` verdict (9.4), `n_tasks` inside each category block, and the `{id, name}` form of
-`config_a` and `config_b`. `stats_version` stayed `1.0.0` while the payload grew, so a stored
-`comparison_run` from before P6 has no `failures` key and one from after it does.
+`config_a` and `config_b`. `stats_version` stayed `1.0.0` while the payload grew through P6; the audit
+fixes bumped it to `1.1.0`, so a stored `comparison_run` from before P6 has no `failures` key and one
+from after it does, and the stored runs of the committed experiments carry `1.0.0` (before the judge
+validation) or `1.1.0` (after). In `1.1.0` `failures` counts the failed trials of every task, not only
+the headline tasks, and a new `failures_judge_excluded` block (same shape) counts the failures of the
+tasks the policy `excluded` withholds; it is null under `trusted` and `flagged`.
 
 ### 9.7 How N was chosen
 
@@ -1139,8 +1143,8 @@ card (25 USD) was never close. The secondary experiment (10.5) added 0.0610 USD 
 
 Where the platform's conclusions should not be trusted, and why.
 
-1. **Task-set size.** 22 tasks, 6 of them on the memory axis. The aggregate CI at N = 5
-   is about ±0.13; effects below that are invisible. Per-task CIs are direction only. A
+1. **Task-set size.** 22 tasks, 6 of them on the memory axis. N was 3 (9.7), and the measured
+   minimum detectable delta of the aggregate is 0.174 (about ±0.17); effects below that are invisible. Per-task CIs are direction only. A
    conclusion about "memory" rests on 6 hand-written tasks and generalizes only to tasks
    like them.
 2. **Judge bias.** 1 judge model, 1 prompt, 1 human labeler, 30 labelled items. Kappa's
@@ -1201,28 +1205,25 @@ Where the platform's conclusions should not be trusted, and why.
    deterministically on one conversation will do so again at temperature 0, so an errored trial is
    not always fixed by a retry.
 6. **No sandbox.** The agent's shell runs in the worker container with the workspace as
-   cwd. Host side effects are limited to the container, not prevented. A task that asks
+   cwd, as the unprivileged user `agent` (R-11). Host side effects are limited to the container, not prevented. A task that asks
    for network access would succeed or fail based on the container's network, which the
    platform does not control or record. The grader-only files (hidden tests, expected files, and
-   the task JSON that holds each `exact_match` answer) are mounted read-only at `/tasks` in that
-   same container, so an agent that went looking could read them. No prompt points there and the
-   runner keeps them out of the workspace (R-5, R-7), but the only protection against a search of
-   the filesystem is that the trace would show it: a `tool_call` whose arguments name `/tasks`.
-   *Changed in build (R-10, after the secondary run):* the trial's `spec.json` (the task's graders) is
-   no longer readable. The runner writes it to `<work_dir>/specs/<trial_id>-<attempt>.json`, outside every
-   trial directory; the child reads it and deletes it before `prepare()` runs, and refuses to start the
-   agent if it cannot delete it or if the trial directory holds anything besides `workspace`, `out`,
-   `home`, `tmp` and the harness's own home. What an agent can still reach: `/tasks`, the read-only mount
-   with every task JSON (the `exact_match` answers and `trace_check` patterns) and the `_hidden/` grader
-   files; for the minimal loop, `../memory/` (the seed) one level above the workspace; for Hermes,
-   `../hermes_home/`. Closing `/tasks` needs real confinement (below) and is the open audit fix; until it
-   lands the claim is "the one path an agent had a reason to try is closed", not "the graders are
-   unreadable". The exposure in the committed secondary run (13.13) happened before this fix. The minimal
+   the task JSON that holds each `exact_match` answer) are mounted under `/srv/evals/tasks`, inside a
+   root-only directory (mode 700), and each trial's `out/` is root-only too. The agent's shell runs as
+   `agent` and cannot read either; before every trial a probe run as that user must find both closed,
+   otherwise the trial is a `worker_crash` and no child starts (R-11, ADAPTERS 6, commit `e73e939`). The
+   child's spec carries no graders and no judge model, and the runner, as root, grades after the child has
+   exited (R-11 supersedes R-7's "same child process"). Two earlier steps led here: before R-10 an agent
+   could read `/tasks` and the trial's `spec.json`; R-10 moved `spec.json` out of the trial directory
+   (commit `6386959`), and R-11 closed the mount.
+   What an agent can still reach: for the minimal loop, `../memory/` (the seed) one level above the
+   workspace; for Hermes, `../hermes_home/`. What R-11 does not cover: concurrent trials share the one
+   `agent` user, and `unit_test` graders run the workspace's code as root. The exposure in the committed
+   secondary run (13.13) happened before these fixes. The minimal
    loop's shell drops environment variables whose names end `_KEY`, `_TOKEN` or `_SECRET`; Hermes's
    terminal drops its own provider blocklist (`tools/environments/local_env_policy.py`, which
    includes `OPENROUTER_API_KEY`) and passes every other worker variable, so a credential under a
-   new name would reach it. Real confinement (a separate uid or a mount namespace for
-   the agent's shell) is not built.
+   new name would reach it. A per-trial uid and a mount namespace for the agent's shell are not built.
 7. **Single run, single day.** The experiment is 1 run on 1 day against 1 provider
    backend. Reproduction (section 6.2) re-runs the inputs; it cannot re-run the backend.
 8. **Pre-registration is procedural, not cryptographic.** D-10 stops edits through the
@@ -1259,13 +1260,16 @@ Where the platform's conclusions should not be trusted, and why.
     in none of its 198 trials (primary and secondary) and named `hermes_home` in 1. The trace
     records each read, so nothing is hidden, but a stronger or more curious
     model makes the memory-off arm of any experiment unreliable on the tasks whose answer is in
-    those files until the shell is confined (a separate uid or a mount namespace). Memory-dependent
-    tasks and `trace_check` tasks are the exposed ones.
-    *Changed in build:* the `spec.json` path is closed since commit `6386959` (13.6, R-10); the run
-    described here predates it and was not repeated, so its `claude-haiku-5.5` results on those tasks stay
-    unreliable. `/tasks` is still readable.
-14. **Cached prompt tokens are priced at 0.** When the provider reports `cache_read_tokens`,
-    `input_tokens` excludes them and `cost_usd` charges nothing for them (STATE.md P1, found 4).
+    those files unless the shell is confined. Memory-dependent tasks and `trace_check` tasks are the
+    exposed ones.
+    *Changed in build:* the `spec.json` path was closed by commit `6386959` (13.6, R-10), and `/tasks` and
+    `out/` by commit `e73e939` (R-11, the unprivileged user `agent`); the run described here predates both
+    and was not repeated, so its `claude-haiku-5.5` results on those tasks stay unreliable.
+14. **Cached prompt tokens are priced at 0 in the committed rows.** When the provider reports
+    `cache_read_tokens`, `input_tokens` excludes them. The committed P5 rows were costed before commit
+    `08de24d`, when `cost_usd` charged nothing for them (STATE.md P1, found 4); since that commit the code
+    charges them at the model's `cached_input_price_per_mtok`, copied into the trial's price snapshot
+    (a snapshot without the field falls back to the input price). The committed rows were not recomputed.
     In the primary run no trial had a cache read; in the secondary run both configs did
     (1,223,265 and 699,574 tokens over 66 trials each), so a cost comparison there has a floor
     (the platform's figure) and a ceiling (cached tokens at the full input price) that differ by up to
@@ -1305,7 +1309,7 @@ STATE.md. A-1 to A-9 are defined in ADAPTERS.md; A-10 in section 12.2.
 | known limits | section 13 |
 | cost estimate | section 12 |
 | 1 real experiment | section 10, export under `experiments/results/` |
-| video | script in P5, recorded by the author |
+| video | script in `docs/SCRIPT.md`, recorded by the author |
 
 | phase | ships | cuttable? |
 |---|---|---|
@@ -1315,5 +1319,7 @@ STATE.md. A-1 to A-9 are defined in ADAPTERS.md; A-10 in section 12.2.
 | P4 | Vue UI: configs, experiments, compare, trial inspector | needed for the video; API and CLI exports stand alone before it |
 | P5 | pilot, N decision, full run, judge validation, results, README, video script | no |
 | P6 | failure categorization | yes, stretch |
+| P7 | UI visual layer (polish only, no logic) | yes |
+| P8 | home dashboard: `GET /summary` and the Overview view at `/` | yes |
 
 After P3 the submission is coherent: everything is runnable and exportable from the API.
