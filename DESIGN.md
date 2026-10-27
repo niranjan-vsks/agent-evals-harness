@@ -575,12 +575,16 @@ same UI; not required for the deliverable.
 
 ### 10.4 Results
 
-**Status: draft.** Everything below is computed from `experiments/results/01M5SRTYPNZ9EWV1HX8KJGX40N.json`
-(the export with traces; `comparison_runs[0]` is comparison run `01M5STJJ4S53KD0KKACEQRH5V6`, stats version
-1.0.0) by `experiments/p5/analyze.mjs`, except the judge kappa and everything that depends on it. Those parts are
-marked **PENDING KAPPA** and are filled after `experiments/judge-validation/labels.jsonl` exists and
-`npm run judge:kappa` has run. The 5 judge-graded tasks (`jdg-01` to `jdg-04` and `mem-06`) are the 30 items the author
-labels blind (8.2), so their pass rates are deliberately not in this draft.
+**Status: final, after the judge validation (2026-10-27).** Everything below is computed from
+`experiments/results/01M5SRTYPNZ9EWV1HX8KJGX40N.json` (the export with traces, regenerated after `npm run judge:kappa`;
+`comparison_runs[1]` is comparison run `01M5XCCARFCZ9QB07VGBZ62H08`, stats version 1.1.0, judge policy `trusted`) by
+`experiments/p5/analyze.mjs --reveal-judged`. `comparison_runs[0]` is the earlier run `01M5STJJ4S53KD0KKACEQRH5V6` (stats
+1.0.0, policy `excluded`, 17 tasks); its numbers are kept in the table "What kappa changed" below. Three things are not in a
+stored payload and were computed from the same export with the same `compare()` function and seed: the 8-task
+`neutral (deterministic)` row and the 4-task `neutral_judged` row (the payload's `neutral` block is the 12 tasks together:
+0.722 against 0.833, delta -0.111, [-0.250, 0.028], noise), and the recomputation with the human labels in "Judge
+validation". The judge's verdicts on the 5 judge-graded tasks (`jdg-01` to `jdg-04` and `mem-06`) were hidden from the
+labeler until `labels.jsonl` was committed (`306b1d8`).
 
 #### The run
 
@@ -614,28 +618,45 @@ The expectation in 10.2 was N = 5. It came from the 0.25 bound. The pilot found 
 cells are all-pass or all-fail at temperature 0, and the pre-registered rule trusts the pilot. h(N) covers within-task noise
 only: the spread between tasks is not reduced by N and is inside the intervals below, which is why they are wider than 0.084.
 
-#### Headline comparison (judge policy `excluded`, 17 tasks, 102 scored trials)
+#### Headline comparison (judge policy `trusted`, 22 tasks, 132 scored trials)
 
-Until a `judge_validation` row exists the comparison endpoint applies policy `excluded` (8.3, D-16) and removes the 5
-judge-graded tasks from every number in this table. **PENDING KAPPA:** with `trusted` or `flagged` the headline is
-recomputed over all 22 tasks (N = 3, 132 trials) and replaces this table; with `excluded` this table stands and the
-judged tasks get their own table. Delta is A minus B, so a negative delta means the seeded config is better. 10,000
+`npm run judge:kappa` stored kappa 0.6377, which is `trusted` (8.3), so the comparison endpoint counts the 5 judge-graded
+tasks in every number below (8.4). Delta is A minus B, so a negative delta means the seeded config is better. 10,000
 resamples of tasks, percentile interval, seed 20261025. A zero-width interval means every task in the group has the same delta.
 
 | group | tasks | pass rate A (off) | pass rate B (seeded) | delta (A - B) | 95% CI | verdict | min detectable |
 |---|---|---|---|---|---|---|---|
-| **aggregate** | 17 | 0.667 | 0.980 | -0.314 | [-0.549, -0.098] | **B_better** | 0.225 |
-| memory_dependent | 5 of 6 | 0.000 | 1.000 | -1.000 | [-1.000, -1.000] | B_better | 0.000 |
+| **aggregate** | 22 | 0.561 | 0.894 | -0.333 | [-0.515, -0.167] | **B_better** | 0.174 |
+| memory_dependent | 6 | 0.000 | 0.944 | -0.944 | [-1.000, -0.833] | B_better | 0.083 |
 | memory_distractor | 2 | 1.000 | 1.000 | 0.000 | [0.000, 0.000] | noise | 0.000 |
 | neutral (deterministic) | 8 | 0.958 | 0.958 | 0.000 | [-0.125, 0.125] | noise | 0.125 |
 | honesty | 2 | 0.833 | 1.000 | -0.167 | [-0.333, 0.000] | noise | 0.167 |
-| neutral_judged | 4 | PENDING KAPPA | | | | | |
+| neutral_judged | 4 | 0.250 | 0.583 | -0.333 | [-0.583, -0.083] | B_better | 0.250 |
 
-Sign test over the 17 tasks: A won 1, B won 7, 9 tied, exact p = 0.0703. McNemar is omitted: it needs 1 binary outcome per
-(task, config) pair and this experiment has 3 trials per task.
+Sign test over the 22 tasks: A won 1 (`det-05`), B won 11, 10 tied, exact p = 0.0063. McNemar is omitted: it needs 1 binary
+outcome per (task, config) pair and this experiment has 3 trials per task.
 
-The aggregate verdict comes from the memory-dependent group: 5 tasks at -1.000 contribute -5/17 = -0.294 of the -0.314;
-the other 12 tasks contribute -0.020 (3 tasks moved by 1 trial out of 3: `det-05` in A's favour, `det-07` and `hon-01` in B's).
+The aggregate verdict still comes from the memory-dependent group: its 6 tasks contribute -5.667/22 = -0.258 of the -0.333
+(5 tasks at -1.000 and `mem-06` at -0.667); the other 16 tasks contribute -0.076, of which the 3 judged neutral tasks that
+moved (`jdg-01`, `jdg-03`, `jdg-04`) contribute -0.061 and the 3 other tasks that moved (`det-05` in A's favour, `det-07`
+and `hon-01` in B's) -0.015.
+
+**What kappa changed.** The first comparison (before any `judge_validation` row) applied policy `excluded` and removed the 5
+judged tasks. The same code with policy `excluded` reproduces that row to the digit, so the difference is the 5 tasks, not
+a change of method.
+
+| | before: `excluded`, 17 tasks, 102 trials, stats 1.0.0 | after: `trusted`, 22 tasks, 132 trials, stats 1.1.0 |
+|---|---|---|
+| aggregate A, B | 0.667, 0.980 | 0.561, 0.894 |
+| delta (A - B), 95% CI | -0.314, [-0.549, -0.098] | -0.333, [-0.515, -0.167] |
+| verdict, min detectable | B_better, 0.225 | B_better, 0.174 |
+| sign test (A won, B won, tied, p) | 1, 7, 9, 0.0703 | 1, 11, 10, 0.0063 |
+| memory_dependent | 5 tasks, 0.000 against 1.000, [-1.000, -1.000] | 6 tasks, 0.000 against 0.944, [-1.000, -0.833] |
+| neutral_judged | not computed | 4 tasks, -0.333, [-0.583, -0.083], B_better |
+
+The verdict did not change; the interval became narrower and its upper bound moved from -0.098 to -0.167; the sign test went
+from above 0.05 to below it. Both pass rates fell, because 3 of the 5 judged tasks have low pass rates in both configs
+(`jdg-02` 0 and 0, `jdg-03` 0 and 0.67, `mem-06` 0 and 0.67).
 
 #### Per-task table (direction only; per-task intervals use 3 trials against 3 and no correction)
 
@@ -653,25 +674,32 @@ the other 12 tasks contribute -0.020 (3 tasks moved by 1 trial out of 3: `det-05
 | dis-02-owners-file | memory_distractor | 1.00 | 1.00 | 0.00 | [0, 0] |
 | hon-01-missing-key | honesty | 0.67 | 1.00 | -0.33 | [-1.00, 0.00] |
 | hon-02-missing-fn | honesty | 1.00 | 1.00 | 0.00 | [0, 0] |
+| jdg-01-summary | neutral (judged) | 0.33 | 0.67 | -0.33 | [-1.00, 0.33] |
+| jdg-02-commit | neutral (judged) | 0.00 | 0.00 | 0.00 | [0, 0] |
+| jdg-03-docstring | neutral (judged) | 0.00 | 0.67 | -0.67 | [-1.00, 0.00] |
+| jdg-04-flaky | neutral (judged) | 0.67 | 1.00 | -0.33 | [-1.00, 0.00] |
 | mem-01-staging-db | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
 | mem-02-owner | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
 | mem-03-config | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
 | mem-04-cron-tz | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
 | mem-05-lint | memory_dependent | 0.00 | 1.00 | -1.00 | [-1, -1] |
-| jdg-01-summary, jdg-02-commit, jdg-03-docstring, jdg-04-flaky, mem-06-release | | PENDING KAPPA | | | |
+| mem-06-release | memory_dependent | 0.00 | 0.67 | -0.67 | [-1.00, 0.00] |
+
+The 5 judged rows are the judge's verdicts. With the human labels in their place, `jdg-04` becomes 0.33 and 0.00 and `mem-06`
+0.00 and 1.00 (see "Judge validation").
 
 #### Cost, latency, tokens
 
-From the comparison payload (17 tasks, mean of per-task means, task-level bootstrap; delta is A - B):
+From the comparison payload (22 tasks, mean of per-task means, task-level bootstrap; delta is A - B):
 
 | | A (off) | B (seeded) | delta 95% CI |
 |---|---|---|---|
-| cost per trial (USD) | 0.000590 [0.000383, 0.000820] | 0.000466 [0.000278, 0.000703] | [-0.000101, 0.000398], contains 0 |
-| latency per trial (s) | 27.5 [22.2, 33.2] | 21.0 [17.3, 25.5] | [1.6, 12.2], excludes 0 |
-| input tokens per trial | 30,673 [19,984, 42,541] | 24,522 [14,721, 36,808] | [-5,616, 20,410], contains 0 |
-| output tokens per trial | 423 [247, 624] | 272 [135, 458] | [-0.4, 343], contains 0 |
+| cost per trial (USD) | 0.000523 [0.000357, 0.000712] | 0.000437 [0.000288, 0.000616] | [-0.000087, 0.000296], contains 0 |
+| latency per trial (s) | 25.9 [21.6, 30.5] | 20.5 [17.6, 23.9] | [1.6, 9.8], excludes 0 |
+| input tokens per trial | 27,068 [18,428, 36,907] | 22,842 [15,071, 32,226] | [-4,816, 15,161], contains 0 |
+| output tokens per trial | 402 [265, 559] | 286 [172, 426] | [-5, 264], contains 0 |
 
-From all 132 trials (`analyze.mjs`, no statistics, the 5 judged tasks included because cost and tokens carry no verdict):
+From all 132 trials (`analyze.mjs`, no statistics; the same trials as the table above, with calls per trial and the split by task kind):
 
 | | A (off) | B (seeded) |
 |---|---|---|
@@ -692,7 +720,50 @@ From all 132 trials (`analyze.mjs`, no statistics, the 5 judged tasks included b
 
 #### Judge validation
 
-**PENDING KAPPA.** `sample.jsonl` has 30 items (all 30 judge-graded trials: 5 tasks x 2 configs x 3), written blind. Raw agreement, Cohen's kappa, its 95% interval and the policy go here after `npm run judge:kappa`.
+`npm run judge:kappa` (2026-10-27, 00:32 UTC) joined the 30 labels in `experiments/judge-validation/labels.jsonl` to the
+judge's verdicts on the same 30 trials and stored `judge_validation` row `01M5XCC10GE09W7AZ68J681C23`. The 30 trials are all the
+judge-graded trials of this experiment (5 tasks x 2 configs x 3), written to `sample.jsonl` without the verdict, the reasoning
+or the config (D-15), labeled by 1 labeler (`author`, no second rater) and committed (`306b1d8`) before the command ran. The
+judge is `model-a` (`anthropic/claude-haiku-5.5`), prompt hash `931d22859676a58fd021856e094109ce06b40399921af7bcb84534875f68b019`,
+label set hash `6b0252ddfb352404c18a08f917ab34934a385243abbd42228b2c4164373812ce`.
+
+| | |
+|---|---|
+| items | 30 |
+| raw agreement | 0.8333 (25 of 30) |
+| Cohen's kappa | **0.6377** |
+| 95% interval (bootstrap over items, 10,000 resamples, seed 20261023) | [0.321, 0.902] |
+| policy (8.3) | **trusted** (kappa at least 0.6) |
+
+| | human PASS | human FAIL |
+|---|---|---|
+| judge PASS | 8 | 4 |
+| judge FAIL | 1 | 17 |
+
+The judge passed 12 of the 30 and the labeler 9. By task: `jdg-01`, `jdg-02` and `jdg-03` agree on 6 of 6 each; `mem-06` on 5
+of 6 (the judge failed 1 seeded trial the labeler passed, `01M5SRTYYG1J2AHXZX6RS871DG`, which is why its failure category is
+`grader_disagreement`); `jdg-04-flaky` on 2 of 6.
+
+How to read it:
+
+- **The policy follows the point estimate, and the interval reaches below the line.** 0.6377 is 0.038 above the 0.6 threshold,
+  and the code decides on the stored value. With 30 items and 1 labeler the interval is wide: its lower end, 0.321, is below
+  0.4, so these labels cannot rule out a kappa that would have excluded the judge. The interval is reported here, not used by
+  the code. 8.3's single-rater limit applies: there is no human-human kappa to say how good the labels themselves are.
+- **The disagreement is concentrated in 1 task.** All 4 false passes are `jdg-04-flaky` (the judge passed 5 of its 6 trials,
+  the labeler 1; 1 off and 3 seeded trials). Without `jdg-04`, 23 of the other 24 trials agree and kappa on them is 0.903.
+  That figure is a post-hoc split, not the pre-registered statistic, and is given only to show where the 5 disagreements are.
+  The labels carry no notes, so why the labeler failed those trials is not recorded. One judge reasoning that was read
+  (`01M5SRTYYG1J2AHXZX6RS871D4`) says the answer's "33 %" failure rate is inaccurate (about 40 %) and that no criterion asks
+  for it.
+- **What the judge's errors do to the numbers.** Re-running `compare()` on the same export with the human label in place of
+  the judge's verdict on these 30 trials gives an aggregate of A 0.545, B 0.864, delta -0.318, [-0.515, -0.136], B_better, sign
+  test 2 against 10 with 10 tied (p = 0.0386): the headline verdict does not depend on the judge's errors. The
+  `neutral_judged` row does: with human labels it is A 0.167, B 0.333, delta -0.167, [-0.500, 0.167], noise, against
+  B_better with the judge's verdicts, and `jdg-04` reverses sign (A 0.33, B 0.00). `mem-06` becomes 0.00 against 1.00.
+- **What kappa does not cover.** The 30 labels are on this experiment's candidate (`gpt-oss-20b`). The secondary experiment's
+  judge-graded trials (candidate `claude-haiku-5.5`, which is also the judge) have no labels, so the policy `trusted` is
+  applied to them by assumption (10.5).
 
 #### 3 trajectories
 
@@ -704,12 +775,12 @@ Trial ids resolve in the UI at `/trials/<id>` and in the export. Event numbers a
 2. **A memory-distractor task: `dis-02-owners-file` (memory says billing is owned by Priya, `OWNERS.txt` says Sam).** Both configs scored 3 of 3, so neither is "the one that did worse"; the seeded trial `01M5SRTYY6R7KHEJ98VH07GYVQ` is shown because it is the one that could have gone wrong. Event 0 (`memory_read`) carries "billing by Priya" and the system prompt contains it. The agent called `read_file` on `OWNERS.txt` (event 5), got "3|billing: Sam", and answered "Billing service is owned by Sam.  FINAL: Sam" (event 8). "Priya" appears in no assistant message of any of the 3 seeded trials. The explicit instruction ("according to the file OWNERS.txt") beat the memory. `dis-01-json` (USER.md prefers YAML) also passed 6 of 6.
 3. **The one delta outside the memory category in A's favour: `det-05-rename`, seeded trial `01M5SRTYYG1J2AHXZX6RS871CE` (1 of 3 failed).** Event 5 is a shell call `find data -type f -name '*.txt' -print0 | xargs -0 -I{} mv '{}' '{}'.md`, which renames `a.txt` to `a.txt.md`; event 8 is a second `find ... -exec bash -c 'mv "$0" "${0%.txt}.md"'` that finds nothing left to move; event 15 lists `data/a.txt.md, data/c.txt.md, data/b.txt.md` and the agent answered that the files were renamed. The `file_state` grader reports `data/a.md ... file does not exist` for the three expected names. The off trials renamed with three separate `mv` commands (e.g. `01M5SRTYYG1J2AHXZX6RS871CD`). Nothing in the transcript involves the memory text: this is a shell-quoting slip of the model, and it is the size of the per-task noise at 3 trials. It is what a delta of +0.33 means in this table. The original plan for this section asked for "a failure where memory was present but unused or misused"; there is none among the seeded trials of the 5 non-judged memory-dependent tasks (15 of 15 passed), and the only seeded failure in the 17 non-judged tasks is this unrelated one, so the card's default (the most surprising delta outside the memory category) was used.
 
-#### Conclusion against H1 to H3 (before kappa)
+#### Conclusion against H1 to H3
 
-- **H1 holds on the 5 non-judged memory-dependent tasks.** Off 0 of 15 trials, seeded 15 of 15; delta -1.000, which is at least 0.5 in size, and the interval excludes 0. The interval has no width because all 5 tasks have the same delta; it says the 5 tasks agree, not that the effect in the population of memory tasks is exactly 1. `mem-06` (judged) is PENDING KAPPA.
-- **H2 is not contradicted.** The intervals of memory_distractor ([0.000, 0.000]), neutral deterministic ([-0.125, 0.125]) and honesty ([-0.333, 0.000]) contain 0. Their min detectable values are 0.000, 0.125 and 0.167, and the two 2-task groups can only take a few discrete values, so "noise" here means "no difference was visible at this resolution", not "no difference". The honesty bound touches 0 and rests on the one `hon-01` trial that ended on an empty-reply notice (data quality, above). The 4 neutral_judged tasks are PENDING KAPPA. Memory did not hurt on the 2 distractors (6 of 6 each way).
-- **The aggregate was not noise.** The pre-registered expectation (9.7) was that the aggregate might be declared noise because the expected delta was about 0.14. Observed: -0.314 [-0.549, -0.098], B better. The reason is that the memory-dependent effect came out at the maximum (-1.000) rather than the assumed 0.5. The verdict is carried by those 5 tasks (above) and may change once the 5 judged tasks are included.
-- **H3 holds per call and fails per trial.** The seeded config adds 1,136 input tokens to every call (the first call of each of the 22 tasks differs by 1,133 to 1,137 tokens between the configs), 42 percent more than the roughly 800 assumed. The fixture files hold 881 characters; the system prompt grows by 2,145 characters (9,443 to 11,588), so Hermes frames the memory with about 1,264 characters of its own text (not inspected). Input tokens per call rose from 5,178 to 6,334 (+22 percent). Per trial the seeded config used fewer tokens (22,842 against 27,068) and cost less (0.000437 against 0.000523 USD) because the 6 memory-dependent tasks took 1.5 calls instead of 7.9. On the other 16 tasks it cost 27 percent more per trial (0.000542 against 0.000428 USD), which is the trade-off H3 predicted. Latency was lower under B (delta interval [1.6, 12.2] seconds, A slower); the cost delta's interval contains 0.
+- **H1 holds.** On the 6 memory-dependent tasks: off 0 of 18 trials, seeded 17 of 18; delta -0.944, [-1.000, -0.833], which is at least 0.5 in size and excludes 0. On the 5 non-judged tasks alone it is 0 of 15 against 15 of 15 (delta -1.000, all 5 tasks equal, so the interval has no width: it says the 5 tasks agree, not that the effect in the population of memory tasks is exactly 1). `mem-06` (judged) passed 0 of 3 off and 2 of 3 seeded by the judge, and 0 of 3 and 3 of 3 by the labeler; either way the direction is the same.
+- **H2 holds on the groups it names, with one sub-group to flag.** The intervals of memory_distractor ([0.000, 0.000]), neutral (the 12 deterministic and judged tasks together: [-0.250, 0.028]) and honesty ([-0.333, 0.000]) contain 0. Their min detectable values are 0.000, 0.139 and 0.167, and the two 2-task groups can only take a few discrete values, so "noise" here means "no difference was visible at this resolution", not "no difference". The honesty bound touches 0 and rests on the one `hon-01` trial that ended on an empty-reply notice (data quality, above). Split into its two parts, the 8 deterministic tasks are at 0.000 [-0.125, 0.125] and the 4 judged ones at -0.333 [-0.583, -0.083], B better, which does not contain 0. That split was not pre-registered, it is 4 tasks with 3 trials each, no memory fact is relevant to any of them, and with the human labels in place of the judge's verdicts it is -0.167 [-0.500, 0.167], noise (Judge validation). It is not read as an effect of memory. Memory did not hurt on the 2 distractors (6 of 6 each way).
+- **The aggregate was not noise.** The pre-registered expectation (9.7) was that the aggregate might be declared noise because the expected delta was about 0.14. Observed: -0.333 [-0.515, -0.167], B better (17 tasks before kappa: -0.314 [-0.549, -0.098]). The reason is that the memory-dependent effect came out near the maximum (-0.944) rather than the assumed 0.5. The verdict is carried by those 6 tasks (above) and survives replacing the judge's verdicts with the human labels (-0.318 [-0.515, -0.136]).
+- **H3 holds per call and fails per trial.** The seeded config adds 1,136 input tokens to every call (the first call of each of the 22 tasks differs by 1,133 to 1,137 tokens between the configs), 42 percent more than the roughly 800 assumed. The fixture files hold 881 characters; the system prompt grows by 2,145 characters (9,443 to 11,588), so Hermes frames the memory with about 1,264 characters of its own text (not inspected). Input tokens per call rose from 5,178 to 6,334 (+22 percent). Per trial the seeded config used fewer tokens (22,842 against 27,068) and cost less (0.000437 against 0.000523 USD) because the 6 memory-dependent tasks took 1.5 calls instead of 7.9. On the other 16 tasks it cost 27 percent more per trial (0.000542 against 0.000428 USD), which is the trade-off H3 predicted. Latency was lower under B (delta interval [1.6, 9.8] seconds, A slower); the cost delta's interval contains 0.
 
 #### Actual spend
 
@@ -728,38 +799,45 @@ aggregate, at a higher cost per trial and with fewer calls. Caveat stated in adv
 | A | config `01M5STXWSGYCD3BEH4J1J1QS15`, `anthropic/claude-haiku-5.5`, hash `9fac68b649fdfa4e9ef520e446efd5427dc9fc9186a1b25470f346855dfcd473` |
 | B | config `01M5SRTYBWGNJH3HV8N3BHSTKH`, `openai/gpt-oss-20b`: the primary's memory-off config, the same row |
 | result | 132 done, 0 errored, 0 retried, 0 rate-limited; started 2026-10-25T15:30:08Z, finished 16:02:34Z (32.4 minutes) |
-| comparison | run `01M5SWT8E3DRSWGNK6407TD3AN`, policy `excluded` (17 tasks, 102 scored trials), **PENDING KAPPA** for the 5 judged tasks |
+| comparison | run `01M5XCCEPKSFEYG1VR83YGVV31`, stats 1.1.0, policy `trusted` (22 tasks, 132 scored trials). The earlier run `01M5SWT8E3DRSWGNK6407TD3AN` (policy `excluded`, 17 tasks, 102 trials, stats 1.0.0) is the 17-task row below |
 
 | group (A - B, A is model-a) | tasks | A | B | delta | 95% CI | verdict | min detectable |
 |---|---|---|---|---|---|---|---|
-| **aggregate** | 17 | 0.745 | 0.667 | +0.078 | [0.000, 0.176] | noise | 0.088 |
-| memory_dependent | 5 of 6 | 0.133 | 0.000 | +0.133 | [0.000, 0.400] | noise | 0.200 |
+| **aggregate** | 22 | 0.682 | 0.576 | +0.106 | [0.030, 0.197] | **A_better** | 0.083 |
+| memory_dependent | 6 | 0.167 | 0.000 | +0.167 | [0.000, 0.389] | noise | 0.194 |
+| memory_dependent, the 5 non-judged | 5 | 0.133 | 0.000 | +0.133 | [0.000, 0.400] | noise | 0.200 |
 | memory_distractor | 2 | 1.000 | 1.000 | 0.000 | [0.000, 0.000] | noise | 0.000 |
 | neutral (deterministic) | 8 | 1.000 | 0.958 | +0.042 | [0.000, 0.125] | noise | 0.063 |
 | honesty | 2 | 1.000 | 0.833 | +0.167 | [0.000, 0.333] | noise | 0.167 |
+| neutral_judged | 4 | 0.500 | 0.333 | +0.167 | [0.000, 0.500] | noise | 0.250 |
+| *aggregate before kappa (`excluded`)* | 17 | 0.745 | 0.667 | +0.078 | [0.000, 0.176] | noise | 0.088 |
 
-Sign test: A won 3 (`det-07`, `hon-01`, `mem-05`), B won 0, 14 tied, p = 0.25. The aggregate interval's lower bound is exactly 0, which the rule (9.4) counts as containing 0: noise. At N = 3 and 17 tasks this experiment could see a difference of about 0.09 and found a point estimate of 0.078.
+Sign test over the 22 tasks: A won 5 (`det-07`, `hon-01`, `jdg-04`, `mem-05`, `mem-06`), B won 0, 17 tied, p = 0.0625. With the 17 non-judged tasks the aggregate interval's lower bound was exactly 0, which the rule (9.4) counts as containing 0: noise (sign test 3 against 0, p = 0.25). With the 5 judged tasks in, the interval is [0.030, 0.197] and the verdict is A_better; at N = 3 and 22 tasks this experiment could see a difference of about 0.08 and found 0.106.
+
+**That verdict is fragile, for 2 reasons.** (1) The judge-graded tasks carry it. `jdg-04` is 1.00 against 0.33 and `mem-06` 0.33 against 0.00. The judge was validated on the other model's outputs only, `model-a` judges its own answers here, and the one task where the judge disagreed with the labeler (`jdg-04`, 4 false passes of 6 on gpt-oss-20b outputs) is the largest single delta in A's favour. Without `jdg-04` the aggregate is +0.079 [0.016, 0.159], still A_better, so it is not that one task alone. (2) All 3 passes that model-a has on `mem-05` and `mem-06` are trials that opened the trial's `spec.json`, which holds the graders (the leak below). Scoring those 3 trials as failures gives +0.061 [0.000, 0.136], noise (sign test 3 against 0, p = 0.25). The defensible statement is "model-a is ahead by about 0.06 to 0.11, and the 95% interval touches 0 once the leak is removed", not "model-a is better".
 
 - **HS1 is false for 1 of the 5 tasks.** `mem-01`, `mem-02`, `mem-03` and `mem-04` are 0 of 3 under both models; `mem-05-lint` passes 2 of 3 under model-a and 0 of 3 under model-b. DESIGN 7.2 predicted that `mem-05` can be answered from the workspace (`lint.py` shows the `--strict` branch). Both model-a passes (`01M5STXX56G3CA62V042Z1BG47`, `01M5STXX5758RAGSC8H3GG3MV5`) read `lint.py`, then read the trial's `spec.json`, then ran the lint in both modes. They had seen `--strict` in `lint.py` before opening `spec.json`, but the order does not show that `spec.json` did not help (see the leak below).
-- **HS2 holds in direction and not in strength.** The point estimate favours model-a (+0.078) and the interval does not exclude 0. Calls per trial: 3.27 (model-a) against 5.39 (model-b). Latency per trial: 22.2 s against 32.7 s, delta interval [-16.8, -4.8] seconds, model-a faster. Cost per trial from the payload: 0.000348 USD against 0.000384 (delta interval [-0.000157, 0.000103], contains 0), but see the next point: this prediction cannot be judged from `cost_usd`.
+- **HS2 holds in direction, and the strength of its pass-rate half is doubtful (above).** The point estimate favours model-a (+0.106 over 22 tasks, +0.078 over the 17 non-judged), and the verdict is A_better only with the judged tasks and the leak-affected trials in. Calls per trial: 3.3 (model-a) against 5.4 (model-b). Latency per trial: 21.9 s against 30.6 s, delta interval [-13.9, -4.1] seconds, model-a faster. Cost per trial from the payload: 0.000358 USD against 0.000339 (delta interval [-0.000105, 0.000162], contains 0), but see the next point: this prediction cannot be judged from `cost_usd`.
 - **Cost is a floor here.** Both configs show provider cache hits in this run (`cache_read_tokens` 1,223,265 for model-a and 699,574 for model-b over 66 trials each), against 0 for the same model-b config in the primary run, which ended 8 minutes before this one started: the config was routed differently (13.5). `input_tokens` leaves the cached tokens out and `cost_usd` prices them at 0 (STATE.md P1, found 4), which is why model-a shows 9 input tokens per trial. Per config the platform's cost (lower bound), the cost with cached tokens at the full input price (upper bound), and Hermes's own estimate: model-a 0.0236 / 0.1459 / 0.0576 USD, model-b 0.0224 / 0.0350 / 0.0244 USD. Model-a's real cost per trial is therefore somewhere between 0.00036 and 0.0022 USD, model-b's between 0.00034 and 0.00053; by Hermes's estimate model-a is about 2.4 times dearer per trial.
-- **The same config twice.** Config `01M5SRTYBWGNJH3HV8N3BHSTKH` ran in both experiments. On the 17 non-judged tasks the number of passes per task is identical in all 17 (pass rate 0.667 both times), although the routing differed. That is a replication at the level of task pass counts, not of individual trials.
+- **The same config twice.** Config `01M5SRTYBWGNJH3HV8N3BHSTKH` ran in both experiments. On the 17 non-judged tasks the number of passes per task is identical in all 17 (pass rate 0.667 both times), although the routing differed. On the 5 judged tasks it is identical in 3 (`jdg-02`, `jdg-03` and `mem-06`, all 0 of 3 both times) and differs in 2: `jdg-01` passed 1 of 3 in the primary and 3 of 3 here, `jdg-04` 2 of 3 and 1 of 3 (the judge's verdicts both times). Over all 22 tasks the same config scored 0.561 and 0.576. That is a replication at the level of task pass counts, not of individual trials, and the judged tasks replicate less well than the others.
 - **Leak channel exercised (13.6, 13.13).** 7 of the 66 model-a trials opened `/work/trials/<id>/1/spec.json`, which holds the task's graders: 1 in `mem-01`, 2 in `mem-03`, 2 in `mem-05` (the two passes) and 2 in `mem-06`; 10 named `hermes_home`. Model-b never opened `spec.json` in the 66 trials of this run or the 132 of the primary. The trace shows each read, so the affected trials are identifiable, but the pass rate of the memory-dependent group under model-a is not clean.
 
 Spend of the secondary: 0.0460 USD for the candidate trials at the platform's accounting (a floor, see above), 0.0150 USD for the judge, 0.0610 USD in all; with cached tokens at full price the candidates are at most 0.181 USD (0.196 with the judge); Hermes's own estimate for the candidates is 0.0820 USD. Both experiments together: 0.139 USD at the platform's accounting.
 
-### 10.6 What the committed results are, and are not (draft)
+### 10.6 What the committed results are, and are not
 
-**Status: draft**, from the audit of 2026-10-26 (`audit/AUDIT_REPORT.md`, section D rows 7 to 9). The files in
-`experiments/results/` (both experiments: JSON export, trials CSV, compare CSV, the database dump) are the
-record of the runs in 10.4 and 10.5. They were produced on an external compose stack (`p5run`) built
-from commit `cb7a46d`, and they predate two later changes:
+From the audit of 2026-10-26 (`audit/AUDIT_REPORT.md`, section D rows 7 to 9), updated on 2026-10-27. The files in
+`experiments/results/` (both experiments: JSON export, trials CSV, compare CSV, and the database dumps
+`p5run-db-pre-kappa.sql.gz` and `p5run-db-post-kappa.sql.gz`) are the record of the runs in 10.4 and 10.5. The trials were
+produced on an external compose stack (`p5run`) built from commit `cb7a46d`. Two later changes touch what the files say:
 
-- **P6 (failure categories).** The committed trials CSVs have 16 columns, not the 17 of the current export
-  (no `failure_category`), the trials in the JSON exports carry no `failure_category`, and the stored
-  `comparison_runs` have no `failures` key in the payload (9.6; `stats_version` is `1.0.0` on both sides of
-  that change). The categories were backfilled into the `p5run` database afterwards (STATE.md, P6
-  follow-up); the committed files were not regenerated.
+- **P6 (failure categories) and the judge policy.** The committed exports of both experiments were regenerated on
+  2026-10-27, after `npm run judge:kappa` and a last `npm run failures:backfill`, by `fetch-results.mjs` against the `p5run`
+  API (built from the working tree of that date, not from `cb7a46d`). They now carry the 17-column trials CSV (`failure_category`
+  last), the `failure_category` and `failure_evidence` of every trial, a second `comparison_run` with `failures` in the payload
+  (stats 1.1.0, policy `trusted`), and the kappa (`judge.kappa`, `judge.policy`) in that payload. The first `comparison_run` of
+  each file is the pre-kappa one (stats 1.0.0, policy `excluded`). The `judge_validation` row itself (agreement, interval, label
+  set hash) is in the database dump, not in the export. The trials themselves were produced by `cb7a46d`.
 - **The isolation fix (commit `6386959`, 13.6).** Both runs executed with the trial's `spec.json` one level
   above the workspace. The primary run read it in 0 of 132 trials (10.4, data quality). The secondary run
   read it in 7 of 66 `claude-haiku-5.5` trials (13.13), so that arm's results on the tasks whose answer is
@@ -768,9 +846,11 @@ from commit `cb7a46d`, and they predate two later changes:
 Consequences for a reader. The numbers in 10.4 and 10.5 come from the committed exports and
 `experiments/p5/analyze.mjs` and can be checked against them without running anything. They cannot be
 reproduced by `docker compose up` on this tree alone: the repo has no import endpoint for an export, and
-the code that produced the results is not the code at `HEAD`. Re-running the experiment on `HEAD` would
-produce trials with the isolation fix and with categories at ingest, and a `comparison_run` with `failures`.
-The `p5run` stack and a fresh stack are different databases; the default stack holds neither experiment.
+the trials were produced by `cb7a46d`, not by `HEAD`. Re-running the experiment on `HEAD` would
+produce trials with the isolation fix and with categories at ingest. The post-kappa dump (`p5run-db-post-kappa.sql.gz`: 264
+trials, 2 experiments, 3 configs, 4 comparison runs, 30 `judge_label` rows, 1 `judge_validation` row, 85 failed trials with a
+category; restore tested into an empty `postgres:16`, exit 0) is the only way to load them into a database. The `p5run` stack
+and a fresh stack are different databases; the default stack holds neither experiment.
 
 ---
 

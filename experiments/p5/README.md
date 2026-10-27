@@ -39,7 +39,7 @@ docker run -d --name restore -e POSTGRES_USER=evals -e POSTGRES_PASSWORD=evals -
 gzip -dc dump.sql.gz | docker exec -i restore psql -U evals -d evals -q -v ON_ERROR_STOP=1
 ```
 
-To use the restored data with the application, restore into the `db` service of a stack whose database is empty (start only `db`, restore, then start `api`, `worker` and `web`); the dump should include Prisma's `_prisma_migrations` table, so the API should see the migrations as applied (starting the application on a restored database was not tested). Taking a new dump after `judge:kappa` is part of the Next action in STATE.md.
+To use the restored data with the application, restore into the `db` service of a stack whose database is empty (start only `db`, restore, then start `api`, `worker` and `web`); the dump should include Prisma's `_prisma_migrations` table, so the API should see the migrations as applied (starting the application on a restored database was not tested). `experiments/results/p5run-db-post-kappa.sql.gz` is the dump taken after `judge:kappa` and `failures:backfill` (it also holds the 30 labels, the `judge_validation` row and the post-kappa `comparison_run` of each experiment); the pre-kappa dump is kept as the record of the database before the validation.
 
 ## Judge validation commands against this stack
 

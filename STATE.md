@@ -50,7 +50,62 @@ experiment + README + video script. P6 failure categories (stretch). After P3 th
 submission is coherent without the UI.
 
 **Status.** P1 and P2 are done: all 5 gates of each passed (see the P2 section for the numbers and
-the isolated stack they ran on). P3 is done (its section is at the end of this file). P4 is done: all 5 gates passed (first section below). P6 is built and stopped at its section 9 condition (its section follows P7). P5 has run: the primary experiment (N = 3, 132 trials, 0 errored) and the secondary are finished and committed, README.md, VIDEO.md and the DESIGN 10.4, 10.5 and 12.2 drafts are written; it is waiting for the owner's 30 labels (see its section, Next action). P7 (UI visual layer) is done: all 5 gates passed. P8 (home dashboard) is done: all 5 gates passed (its section is first).
+the isolated stack they ran on). P3 is done (its section is at the end of this file). P4 is done: all 5 gates passed (first section below). P6 is built and stopped at its section 9 condition (its section follows P7). P5 has run: the primary experiment (N = 3, 132 trials, 0 errored) and the secondary are finished and committed, README.md, VIDEO.md and the DESIGN 10.4, 10.5 and 12.2 drafts are written; the owner's 30 labels were made and `judge:kappa` has run (kappa 0.6377, policy `trusted`; section "Judge validation", first after this one), so only the video is left. P7 (UI visual layer) is done: all 5 gates passed. P8 (home dashboard) is done: all 5 gates passed (its section is first).
+
+---
+
+## Judge validation: kappa, the 22-task headline, the exports and the dump (2026-10-27)
+
+The owner's 30 blind labels (`experiments/judge-validation/labels.jsonl`, labeler `author`, committed in `306b1d8`) were joined to the judge's verdicts on the `p5run` stack, and everything that waited on kappa was filled. No code, test or UI was changed; documents, committed results and one dump only. The stack was the one P5, P6 and P8 left: its api and web were rebuilt from a working-tree copy for P8, so it already had migration `0004`, `STATS_VERSION` 1.1.0 and the 12 failure rules; its worker is still the old image.
+
+### Shipped
+
+- **Kappa.** `docker compose -p p5run -f C:/hx/p5src/docker-compose.yml exec -T api npm run judge:kappa` printed `judge model-a  prompt 931d22859676  labeler author`, `items 30  agreement 0.8333  kappa 0.6377  95% CI [0.321, 0.902]  policy trusted`, and wrote `judge_validation` `01M5XCC10GE09W7AZ68J681C23` (label set hash `6b0252dd...`). Confusion: judge PASS and human PASS 8, judge PASS and human FAIL 4, judge FAIL and human PASS 1, both FAIL 17. **The policy is `trusted`** (kappa at least 0.6, decided on the stored 4-decimal value).
+- **`failures:backfill -- --sample 5`** on the same database: 85 failed trials examined, 1 updated, 84 unchanged, the CHECK `trial_failure_category_iff_failed` validated for every row. The one change is `01M5SRTYYG1J2AHXZX6RS871DG` (`mem-06-release`, seeded), which went from `judge_criteria_unmet` to `grader_disagreement` because the labeler passed what the judge failed. Histogram, all 85: `step_exhaustion` 10, `wrong_tool_usage` 6, `tool_error_unrecovered` 1, `no_final_answer` 5, `judge_criteria_unmet` 36 (was 37), `grader_disagreement` 1 (was 0), `abstained` 20, `wrong_answer` 6 (7.1 percent), the other 3 categories 0.
+- **Re-export.** `node experiments/p5/fetch-results.mjs <id> http://127.0.0.1:3200` for `01M5SRTYPNZ9EWV1HX8KJGX40N` (new comparison run `01M5XCCARFCZ9QB07VGBZ62H08`) and `01M5STXWYMRDGQFJ47DNK5Y83S` (`01M5XCCEPKSFEYG1VR83YGVV31`); both print gate 5 `true`. The JSON, trials CSV (now 17 columns) and compare CSV of both are overwritten in `experiments/results/`; `comparison_runs[1]` is the new one (stats 1.1.0, policy `trusted`, 22 tasks, `failures`), `comparison_runs[0]` the pre-kappa one.
+- **Dump.** `experiments/results/p5run-db-post-kappa.sql.gz` (680,816 bytes, `pg_dump --no-owner`). Restored into an empty `postgres:16` with `ON_ERROR_STOP`: exit 0; 264 trials, 2 experiments, 3 configs, 4 comparison runs, 30 `judge_label`, 1 `judge_validation`, 85 trials with a failure category, 4 migrations. `p5run-db-pre-kappa.sql.gz` was kept, not replaced (it is the database before the validation, 676,569 bytes).
+- **Documents.** DESIGN 10.4 (status, headline over 22 tasks, "What kappa changed", per-task table with the 5 judged rows, cost and tokens table over 22 tasks, "Judge validation", conclusion), 10.5 (22-task table, sign test, fragility of the verdict, HS2, the same-config comparison), 10.6 (what the files are now); `README.md` (the judge sentence flipped as the docs section said; it quotes the interval); `experiments/p5/README.md` (the new dump); `cards/P6.md` §1 (the labels exist now). Every PENDING KAPPA in DESIGN.md is gone (`grep PENDING DESIGN.md` is empty).
+
+### Verified
+
+| Check | Result |
+|---|---|
+| kappa arithmetic | by hand from the confusion matrix: p_o = 25/30 = 0.8333; the judge says PASS on 12, the labeler on 9; p_e = (12 x 9 + 18 x 21) / 900 = 0.54; kappa = (0.8333 - 0.54) / 0.46 = 0.6377 |
+| Exports equal the live API | `fetch-results.mjs` gate 5 for both: stored result equals a fresh `compare?persist=0`, field for field, `true` |
+| The numbers in DESIGN 10.4 and 10.5 | the aggregate of each stored payload was reproduced to 4 decimals by calling the compiled `compare()` (`/app/dist/stats/compare.js` in the api container) on the export's trials with the same seed and policy `trusted`; the same call with policy `excluded` reproduces the pre-kappa 17-task row of 10.4 (0.6667, 0.9804, -0.3137, [-0.5490, -0.0980]) |
+| Numbers not in a payload | the 8-task and 4-task neutral rows, the recomputation with human labels (the 30 trials' `passed` replaced by `human_passed`), the secondary without `jdg-04`, and the secondary with the 3 spec-reading passes scored as failures: all from that same `compare()` call on the same export. Scratch scripts, not committed |
+| Restore of the new dump | above |
+| Em-dashes in the text added to the documents | 0 |
+| Tests, typecheck, build | **not run**: no code changed |
+| UI | **not opened**, and `GET /summary` (the P8 Overview) was not read. The `p5run` web container serves the P7 and P8 UI; its Compare page should show policy `trusted` and 22 tasks, and P8 Found 3 ("judge: excluded" in the fail colour) should no longer apply. Nothing of that was looked at in this session |
+
+### Cut on purpose
+
+- No second labeler, no re-labelling (the card forbids it below 0.4 and nothing asks for it above).
+- The committed `analyze.mjs` was not changed; it has no flag for the neutral_judged split. The two rows that need it were computed by a scratch script and are labelled as such in DESIGN 10.4.
+- `VIDEO.md`, `ADAPTERS.md`, `DATA_MODEL.md` and older STATE sections were not edited (older sections say "waiting for the labels"; this section supersedes them).
+- Nothing was committed.
+
+### Found but not fixed
+
+1. **The interval reaches below the `excluded` line.** Kappa 0.6377 [0.321, 0.902] is `trusted` by the point estimate; 0.321 is under 0.4. 30 items from 1 labeler cannot rule out an excluded judge. DESIGN 10.4 says so and does not use the interval.
+2. **The judge's errors are all on 1 task.** All 4 false passes are `jdg-04-flaky` (judge 5 of 6, labeler 1 of 6); `mem-06` has the 1 false fail. Replacing the judge's verdicts with the labels on those 30 trials leaves the primary verdict at B_better (-0.318 [-0.515, -0.136]) and turns the `neutral_judged` row from B_better (-0.333) to noise (-0.167 [-0.500, 0.167]). The labels have no notes, so the reason for the `jdg-04` fails is unknown.
+3. **The secondary's new A_better verdict (+0.106 [0.030, 0.197]) is fragile.** With the 17 non-judged tasks it is noise (lower bound exactly 0); with the 3 passes of model-a on `mem-05` and `mem-06` (all three opened `spec.json`) scored as failures it is +0.061 [0.000, 0.136], noise. Nothing validates the judge on model-a's own answers, and model-a is the judge. HS2's pass-rate half is "in direction, not in strength" in DESIGN 10.5.
+4. **Policy `trusted` is applied to the secondary experiment by assumption.** The labels cover the primary's candidate only.
+5. **The same config scored differently on 2 judged tasks across the 2 experiments** (`jdg-01` 1 of 3 then 3 of 3, `jdg-04` 2 of 3 then 1 of 3), while the 17 non-judged tasks match in all 17. The judged tasks are the noisier ones.
+6. **`analyze.mjs` was run with `--reveal-judged`**; its output (`C:\hx\p5-analysis-final.txt`, `p5-sec-analysis-final.txt`) is outside the repo.
+7. The limits in the older "Found" lists (Hermes retries, the confinement gap, cached tokens priced at 0, no import endpoint, no ESLint or Prettier run) still stand; none of them was touched.
+
+### Assumptions resolved
+
+- **Pre-registered policy rule (DESIGN 8.3):** kappa 0.6377 is at least 0.6, so `trusted`; the judge-graded tasks count in the headline and no separate table is needed. The 17-task numbers are kept in DESIGN 10.4 only as "before".
+- **H1:** holds on 6 tasks (0 of 18 against 17 of 18, -0.944 [-1.000, -0.833]). **H2:** holds on the groups it names; the unregistered 4-task judged sub-group is B_better by the judge and noise by the labeler. **H3:** unchanged. Details in DESIGN 10.4.
+
+### Next action
+
+1. **Video** (owner): record on the `p5run` stack (<http://localhost:8280>) following `VIDEO.md`; the Compare page should show policy `trusted` and 22 tasks. Time it. Do not run `down -v` on `p5run`.
+2. Review the diff and commit: `DESIGN.md`, `README.md`, `STATE.md`, `cards/P6.md`, `experiments/p5/README.md`, `experiments/results/*` (six regenerated files and the new dump).
+3. Optional: rebuild the `p5run` api and worker images from a `git archive` of the commit (STATE "Audit fixes (code)", Found 1), so the stack is no longer built from a working-tree copy.
 
 ---
 
