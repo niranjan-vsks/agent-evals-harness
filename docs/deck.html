@@ -140,8 +140,39 @@ svg .acc { fill: var(--accent); }
 <body>
 <main class="stage" id="stage" aria-roledescription="slide deck">
 
+  <!-- 0. welcome: holds the screen during the spoken intro -->
+  <section class="slide welcome" aria-label="Welcome">
+    <style>
+      .welcome { display: grid; place-items: center; text-align: center; }
+      .welcome .ring { width: 18cqw; height: 18cqw; border-radius: 50%; border: 2px solid rgb(34 184 240 / .35);
+        display: grid; place-items: center; margin: 0 auto 2.4cqw; position: relative; }
+      .welcome .ring::before { content: ""; position: absolute; inset: -14px; border-radius: 50%;
+        border: 1px solid rgb(34 184 240 / .18); animation: breathe 3.2s ease-in-out infinite; }
+      .welcome .ring::after { content: ""; position: absolute; inset: 18%; border-radius: 50%;
+        background: radial-gradient(circle, rgb(34 184 240 / .28), transparent 70%); animation: breathe 3.2s ease-in-out infinite reverse; }
+      .welcome .ring svg { width: 46%; height: 46%; position: relative; z-index: 1; }
+      @keyframes breathe { 0%, 100% { transform: scale(1); opacity: .7; } 50% { transform: scale(1.06); opacity: 1; } }
+      .welcome .mark { font-family: var(--font-display); font-weight: 700; font-size: 5.2cqw; letter-spacing: -0.02em; color: var(--text); }
+      .welcome .mark span { color: var(--accent); }
+      .welcome .tag { font-size: 1.9cqw; color: var(--muted); margin-top: .8cqw; }
+      .welcome .who { font-family: var(--font-mono); font-size: 1.25cqw; color: var(--muted); margin-top: 3.2cqw; letter-spacing: .06em; }
+      @media (prefers-reduced-motion: reduce) { .welcome .ring::before, .welcome .ring::after { animation: none; } }
+    </style>
+    <div>
+      <div class="ring" aria-hidden="true">
+        <svg viewBox="0 0 100 100" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round">
+          <path d="M14 70 L34 44 L54 60 L86 26"/>
+          <circle cx="86" cy="26" r="5" fill="var(--accent)" stroke="none"/>
+        </svg>
+      </div>
+      <div class="mark">Agent <span>Evals</span></div>
+      <div class="tag">Any harness, any model. Better, worse, or noise?</div>
+      <div class="who">Niranjan · Applied AI Engineer take-home</div>
+    </div>
+  </section>
+
   <!-- 1. the question and the answer -->
-  <section class="slide" aria-label="The question">
+  <section class="slide" aria-label="The question" hidden>
     <div class="eyebrow">Agent evals</div>
     <h1>Does seeded memory make the agent better, or is it luck?</h1>
     <div class="hero">
