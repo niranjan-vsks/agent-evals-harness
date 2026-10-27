@@ -4,23 +4,23 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 ## Time allocation
 
-10:00 in all: **9:35 scripted, 0:25 of slack.** Start times are the target; stop recording by 9:50 at the latest. If you are behind at 7:00, drop the design-document beat (8:45) and say its 1 line during the close.
+10:00 in all: **9:50 scripted, 0:10 of slack.** Start times are the target. If you are behind at 7:00, drop the design-document beat (9:00) and say its 1 line during the close; that recovers 20 s.
 
 | start | section | length |
 |---|---|---|
 | 0:00 | Intro: who I am, and why this assignment fits | 0:30 |
 | 0:30 | The result, in 1 breath | 0:15 |
-| 0:45 | Deck: problem, architecture, statistics, judge, result | 1:30 |
-| 2:15 | Setup: 1 command, 4 containers | 0:15 |
-| 2:30 | Overview | 0:45 |
-| 3:15 | Configs: a refusal | 0:45 |
-| 4:00 | Start the live run; the pilot | 0:45 |
-| 4:45 | Compare | 1:45 |
-| 6:30 | A failed trial and its twin | 1:00 |
-| 7:30 | The code | 1:15 |
-| 8:45 | The design document | 0:20 |
-| 9:05 | The live result, and the close | 0:30 |
-| 9:35 | end; 0:25 of slack remains | |
+| 0:45 | Deck: problem, architecture (7 steps), statistics, judge, result | 1:45 |
+| 2:30 | Setup: 1 command, 4 containers | 0:15 |
+| 2:45 | Overview | 0:45 |
+| 3:30 | Configs: a refusal | 0:45 |
+| 4:15 | Start the live run; the pilot | 0:45 |
+| 5:00 | Compare | 1:45 |
+| 6:45 | A failed trial and its twin | 1:00 |
+| 7:45 | The code | 1:15 |
+| 9:00 | The design document | 0:20 |
+| 9:20 | The live result, and the close | 0:30 |
+| 9:50 | end; 0:10 of slack remains | |
 
 ---
 
@@ -38,15 +38,15 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "So I picked 1 such question to put the platform through. Does giving the agent a memory file make it better, or is the improvement luck? Here is what came out. On 22 tasks, Hermes with seeded memory passed 0.894 against 0.561 without it. That is a difference of minus 0.333, with a 95 percent interval from minus 0.515 to minus 0.167. The rest of this video is how the platform gets to that number, and where it stops trusting itself."
 
-## 0:45 Deck (1:30)
+## 0:45 Deck (1:45)
 
 [NEXT SLIDE: the problem]
 
 > "The usual evidence for 'this change made the agent better' is 1 run and 1 score, with no error bar. Agents are not deterministic, so a single run cannot separate a real change from noise. This platform asks a narrower question: on the same tasks, does config A beat config B, and is the difference bigger than the noise?"
 
-[PAUSE 1s] [NEXT SLIDE: architecture, let it build]
+[PAUSE 1s] [NEXT SLIDE: architecture. The numbered badges appear in the order you say them; pace each step to its badge]
 
-> "4 containers. A Vue interface. A NestJS API with Postgres that owns experiments, scheduling and the statistics. A Python worker that runs every trial in its own process through a harness adapter, then grades it. Models through OpenRouter. There are 2 harnesses behind 1 contract: Hermes, and a small loop I wrote after freezing the contract, to prove the contract is not shaped like Hermes."
+> "4 containers, and 1 cycle that every trial goes through. Step 1: in the interface I define a config, which is a harness plus a model plus settings. Step 2: the API turns an experiment into trials, every task under every config, N times each, and schedules them with retries. Step 3: the worker starts a fresh process for each trial, as an unprivileged user. Step 4: that process talks to the harness only through 1 adapter contract. 2 harnesses sit behind it: Hermes, and a small loop I wrote after freezing the contract, to prove the contract is not shaped like Hermes. Step 5: the harness calls the model through OpenRouter, so a model is a registry row. Step 6: when the agent exits, the graders run on what it left behind. Step 7: the trace, the token usage and the grades go back to the API, which is where the statistics live. Then the loop repeats for the next trial."
 
 [NEXT SLIDE: the statistical approach, let it build]
 
@@ -60,13 +60,13 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "The result. Memory-dependent tasks: 0 of 18 trials without memory, 17 of 18 with it. Every other group contains zero. So the claim is narrow: memory helped on tasks written to need it, and did no harm on the rest of this set. That is the deck. Everything else is the running system, starting with how it comes up."
 
-## 2:15 Setup: 1 command, 4 containers (0:15)
+## 2:30 Setup: 1 command, 4 containers (0:15)
 
 [SWITCH TO TERMINAL: the repo folder, `docker compose ps` already typed] [PRESS ENTER]
 
 > "Setup is 1 command, docker compose up, with the API key in a dot env file. 4 containers: database, API, worker, web. The README covers adding a task, a harness and a model."
 
-## 2:30 Overview (0:45)
+## 2:45 Overview (0:45)
 
 [SWITCH TO BROWSER: http://localhost:8280/] [PAUSE 2s while the numbers count in]
 
@@ -80,7 +80,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "Every failed trial gets a cause from 12 ordered rules, with the evidence attached."
 
-## 3:15 Configs: a refusal (0:45)
+## 3:30 Configs: a refusal (0:45)
 
 [CLICK: Configs]
 
@@ -94,7 +94,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 [CLEAR the form. Do not create the config.]
 
-## 4:00 Start the live run, and the pilot (0:45)
+## 4:15 Start the live run, and the pilot (0:45)
 
 [CLICK: Experiments] [TICK: hermes memory off, hermes memory seeded] [TICK tasks: det-06-ini, mem-05-lint] [SET N: 1] [TYPE the axis and the hypothesis from DEMO_GUIDE 3.7]
 
@@ -108,7 +108,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "For the real run I chose N with a pilot. The pilot shows the variance and projected interval widths, and deliberately no difference between configs, so the sample size cannot be steered by the answer. The rule asked for a half-width under 0.15. The measured variance gave 0.084 at 3 trials, so 3 it was."
 
-## 4:45 Compare (1:45)
+## 5:00 Compare (1:45)
 
 [CLICK: Compare, A = hermes memory off, B = hermes memory seeded]
 
@@ -140,7 +140,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "Quality next to cost. Memory adds 1,136 tokens to every call, but the memory tasks finish in fewer calls, so per trial seeded was cheaper here. The cost interval contains zero."
 
-## 6:30 A failed trial and its twin (1:00)
+## 6:45 A failed trial and its twin (1:00)
 
 [SCROLL TO: per-task table, row mem-05-lint] [CLICK: the memory-off trial, 01M5SRTYYFKEFMG9GHK40QFHQQ]
 
@@ -158,7 +158,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "Same task, memory seeded. The memory, loaded by the harness, says: lint is run as python lint.py --strict. 2 steps: it runs strict, gets FAIL, answers FAIL. The only difference between these 2 trials is the memory setting."
 
-## 7:30 The code (1:15)
+## 7:45 The code (1:15)
 
 [SWITCH TO EDITOR: api/src/stats/compare.ts] [SCROLL TO: noiseRule]
 
@@ -176,7 +176,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "Third, isolation. Each trial gets a fresh directory and a fresh child process, running as an unprivileged user. Its copy of the spec has the graders removed, and the runner grades only after the child exits. That is isolation between trials. It is not a sandbox from the host: the network is not controlled."
 
-## 8:45 The design document (0:20)
+## 9:00 The design document (0:20)
 
 [SWITCH TO EDITOR: DESIGN.md, markdown preview] [SCROLL TO: section 9.7, the N table]
 
@@ -186,7 +186,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "And section 13 is the known limits, written before the run, not after."
 
-## 9:05 The live result, and the close (0:30)
+## 9:20 The live result, and the close (0:30)
 
 [SWITCH TO BROWSER: the live experiment] [CLICK: Compare]
 
