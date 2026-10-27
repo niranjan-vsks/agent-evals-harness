@@ -17,7 +17,7 @@ function applyBase() {
 <template>
   <header class="topbar">
     <div class="topbar-inner">
-      <RouterLink to="/experiments" class="wordmark">Agent Evals</RouterLink>
+      <RouterLink to="/" class="wordmark">Agent Evals</RouterLink>
       <nav class="nav" aria-label="Main">
         <RouterLink to="/" class="nav-link">Overview</RouterLink>
         <RouterLink to="/configs" class="nav-link">Configs</RouterLink>

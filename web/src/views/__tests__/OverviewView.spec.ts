@@ -228,7 +228,7 @@ describe('OverviewView empty and error states', () => {
 });
 
 describe('routing and nav (P8)', () => {
-  it('serves the Overview at / and lists Overview, Configs, Experiments in that order', async () => {
+  it('serves the Overview at /, links the wordmark to it, and lists Overview, Configs, Experiments in that order', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push('/');
     await router.isReady();
@@ -240,6 +240,7 @@ describe('routing and nav (P8)', () => {
       ['Configs', '/configs'],
       ['Experiments', '/experiments'],
     ]);
+    expect(shell.find('.wordmark').attributes('href')).toBe('/');
     expect(router.resolve('/configs').name).toBe('configs');
   });
 });
