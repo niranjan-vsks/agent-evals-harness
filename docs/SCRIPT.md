@@ -98,7 +98,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 [CLICK: Experiments, then the create form] [TYPE Name: Live: memory off vs seeded] [TICK configs: hermes memory off first, then hermes memory seeded] [TASKS: untick all, then tick only det-06-ini and mem-05-lint] [SET N: 1] [SEED: leave empty] [PHASE: leave default] [TYPE Axis: memory off vs seeded, live] [TYPE Hypothesis: On these 2 tasks memory changes mem-05 only; with 2 tasks and 1 trial the platform should call it noise.]
 
-> "So this is a small live run: 2 tasks, 2 configs, 1 trial each. Notice the form will not let me start without writing down what I expect to happen. And once I press Start, that prediction is locked; I cannot go back and edit it after seeing the results."
+> "The task list here is the full set from the repo: 22 small jobs with a checkable answer, like counting rows in a CSV, fixing a function until hidden tests pass, writing a commit message, running the team's lint the way the team runs it. 6 of them can only be solved with the team's memory file; those are the ones that discriminate. For this live run I tick just 2: 2 tasks, 2 configs, 1 trial each. Notice the form will not let me start without writing down what I expect to happen. And once I press Start, that prediction is locked; I cannot go back and edit it after seeing the results."
 
 [CLICK: Create] [CLICK: Start]
 
