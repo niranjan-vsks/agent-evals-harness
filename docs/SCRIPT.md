@@ -98,11 +98,11 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 [CLICK: Experiments, then the create form] [TYPE Name: Live: memory off vs seeded] [TICK configs: hermes memory off first, then hermes memory seeded] [TASKS: untick all, then tick only det-06-ini and mem-05-lint] [SET N: 1] [SEED: leave empty] [PHASE: leave default] [TYPE Axis: memory off vs seeded, live] [TYPE Hypothesis: On these 2 tasks memory changes mem-05 only; with 2 tasks and 1 trial the platform should call it noise.]
 
-> "A live run: 2 tasks, 2 configs, 1 trial each. The hypothesis is required, and it is frozen when I press start."
+> "So this is a small live run: 2 tasks, 2 configs, 1 trial each. Notice the form will not let me start without writing down what I expect to happen. And once I press Start, that prediction is locked; I cannot go back and edit it after seeing the results."
 
 [CLICK: Create] [CLICK: Start]
 
-> "4 trials, 2 at a time, each in a fresh process. I will come back to it."
+> "That is 4 trials. The scheduler runs 2 at a time, each one in its own fresh process. It takes about a minute, so I will come back to it at the end."
 
 [CLICK: the primary experiment, "P5 primary"] [SCROLL TO: Pilot panel]
 
