@@ -96,7 +96,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 ## 4:15 Start the live run, and the pilot (0:45)
 
-[CLICK: Experiments] [TICK: hermes memory off, hermes memory seeded] [TICK tasks: det-06-ini, mem-05-lint] [SET N: 1] [TYPE the axis and the hypothesis from DEMO_GUIDE 3.7]
+[CLICK: Experiments, then the create form] [TYPE Name: Live: memory off vs seeded] [TICK configs: hermes memory off first, then hermes memory seeded] [TASKS: untick all, then tick only det-06-ini and mem-05-lint] [SET N: 1] [SEED: leave empty] [PHASE: leave default] [TYPE Axis: memory off vs seeded, live] [TYPE Hypothesis: On these 2 tasks memory changes mem-05 only; with 2 tasks and 1 trial the platform should call it noise.]
 
 > "A live run: 2 tasks, 2 configs, 1 trial each. The hypothesis is required, and it is frozen when I press start."
 
