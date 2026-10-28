@@ -70,7 +70,7 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 [SWITCH TO BROWSER: http://localhost:8280/] [PAUSE 2s while the numbers count in]
 
-> "This is the home screen. 2 experiments, 264 trials, none errored, 0.11 dollars of agent model spend, which is a floor."
+> "This is the home screen. 3 experiments, 268 trials, none errored, 0.11 dollars of agent model spend, which is a floor. The best pass rate on the board is 0.894, and it belongs to the memory-seeded config."
 
 [POINT: Latest verdicts]
 
