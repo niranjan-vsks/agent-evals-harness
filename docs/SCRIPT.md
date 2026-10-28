@@ -86,13 +86,13 @@ Word for word. Spoken text is in quote blocks. Cues are in square brackets. Mech
 
 > "A config is a harness, a model and its settings. It is immutable: the same settings return the same row, and a change makes a new one."
 
-[SELECT: harness minimal_loop, model openai/gpt-oss-20b] [CLICK: skills enabled] [CLICK: Create]
+[CLICK: the create form] [TYPE name: minimal loop with skills] [SELECT harness: minimal_loop] [SELECT model: openai/gpt-oss-20b] [TOOLS: leave the defaults ticked] [MEMORY MODE: off] [SKILLS: tick enabled; preload empty] [TEMPERATURE 0, MAX_STEPS 15, MAX_OUTPUT_TOKENS 2048, TIMEOUT_SECONDS 300: leave as the form shows, change nothing] [CLICK: Create]
 
 [PAUSE 2s on the refusal]
 
 > "Refused, with the reason: the minimal loop has no skills. A harness never silently ignores a setting. If it cannot do exactly what the config says, the config is not created, so 2 configs with the same settings always mean the same thing."
 
-[CLEAR the form. Do not create the config.]
+[CLICK: Configs in the nav to leave the form. Do not create the config.]
 
 ## 4:15 Start the live run, and the pilot (0:45)
 
